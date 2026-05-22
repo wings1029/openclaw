@@ -108,6 +108,14 @@ const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.CALLS_PATH, JSON.stringify({ tool: "crabbox", args }) + "\\n");
 		if (args[0] === "inspect") {
+		  const sequence = process.env.INSPECT_STDOUTS ? JSON.parse(process.env.INSPECT_STDOUTS) : null;
+		  if (sequence) {
+		    const countPath = process.env.INSPECT_COUNT_PATH;
+		    const count = fs.existsSync(countPath) ? Number(fs.readFileSync(countPath, "utf8")) : 0;
+		    fs.writeFileSync(countPath, String(count + 1));
+		    console.log(sequence[Math.min(count, sequence.length - 1)]);
+		    process.exit(0);
+		  }
 		  if (process.env.INSPECT_STATUS) {
 		    console.error(process.env.INSPECT_STDERR || "inspect failed");
 		    process.exit(Number(process.env.INSPECT_STATUS));
@@ -159,6 +167,7 @@ process.exit(0);
       PATH: `${binDir}${path.delimiter}${process.env.PATH || ""}`,
       PR_COMMENTS: JSON.stringify(normalizeCommentsPayload(comments)),
       PR_HEAD_SHA: currentHead,
+      INSPECT_COUNT_PATH: path.join(dir, "inspect-count"),
       WEBVNC_STATUS_COUNT_PATH: path.join(dir, "webvnc-status-count"),
       ...env,
     },
@@ -769,6 +778,63 @@ describe("scripts/crabbox/pr-desktop-lease", () => {
     expect(commentBody).toContain("Reset WebVNC");
     expect(commentBody).toContain("- Expires: `2999-01-01T00:00:00.000Z`");
     expect(commentBody).toContain(currentHead.slice(0, 12));
+  });
+
+  it("keeps the workflow alive after resetting the runner-hosted WebVNC bridge", () => {
+    const activeComment = [
+      "<!-- crabbox-pr-desktop-lease:openclaw/openclaw:85136:linux -->",
+      "- Platform: `linux`",
+      "- Provider: `azure`",
+      "- Lease: `cbx_active`",
+      "- Expires: `2999-01-01T00:00:00.000Z`",
+      `- PR code: \`openclaw/openclaw#85136\` at \`${currentHead.slice(0, 12)}\``,
+      "Portal: https://crabbox.example.test/portal/leases/cbx_active",
+    ].join("\n");
+
+    const { calls, commentBody, result } = runLeaseScript(
+      {
+        action: "reset-vnc",
+        item_number: "85136",
+        platform: "linux",
+        provider: "aws",
+        target_repo: "openclaw/openclaw",
+        ttl_minutes: "15",
+      },
+      [activeComment],
+      {
+        CRABBOX_PR_DESKTOP_LEASE_KEEPALIVE_POLL_MS: "1",
+        GITHUB_ACTIONS: "true",
+        INSPECT_STDOUTS: JSON.stringify([
+          JSON.stringify({ state: "active", status: "running" }),
+          JSON.stringify({ state: "stopped", status: "stopped" }),
+        ]),
+      },
+    );
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(commentBody).toContain("Reset WebVNC");
+    expect(calls).toContainEqual({
+      tool: "crabbox",
+      args: [
+        "webvnc",
+        "reset",
+        "--provider",
+        "azure",
+        "--target",
+        "linux",
+        "--id",
+        "cbx_active",
+      ],
+    });
+    expect(
+      calls.filter(
+        (call) =>
+          call.tool === "crabbox" &&
+          call.args[0] === "inspect" &&
+          call.args.includes("cbx_active"),
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("rejects provider and platform combinations that Crabbox cannot broker", () => {

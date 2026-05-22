@@ -219,12 +219,28 @@ async function main() {
     });
     return;
   }
-  postComment({
+  let ready = null;
+  try {
+    ready = await waitForWebvncReady(active.lease_id, activeProvider);
+  } catch (error) {
+    postComment({
+      ...active,
+      status: "failed",
+      provider: activeProvider,
+      failed_step: "reset-vnc-ready",
+      failure_excerpt: redactSensitiveText(error instanceof Error ? error.message : String(error)),
+    });
+    return;
+  }
+  const resetState = {
     ...active,
     status: "reset",
     provider: activeProvider,
-    webvnc_bridge: "reset requested",
-  });
+    status_excerpt: ready.stdout || ready.stderr,
+    webvnc_bridge: "reset",
+  };
+  postComment(resetState);
+  await keepWorkflowAliveForLease(resetState);
 }
 
 async function lease(headSha) {
