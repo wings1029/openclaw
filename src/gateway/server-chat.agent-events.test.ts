@@ -1851,6 +1851,86 @@ describe("agent event handler", () => {
     resetAgentRunContextForTest();
   });
 
+  it("skips delayed terminal session status after a newer lifecycle start", async () => {
+    let resolveTerminalPersist!: (value: boolean) => void;
+    persistGatewaySessionLifecycleEventMock.mockImplementation((params: unknown) => {
+      const phase = (params as { event?: { data?: { phase?: unknown } } }).event?.data?.phase;
+      if (phase === "end") {
+        return new Promise<boolean>((resolve) => {
+          resolveTerminalPersist = resolve;
+        });
+      }
+      return Promise.resolve(true);
+    });
+    vi.mocked(loadGatewaySessionRow).mockReturnValue({
+      key: "session-finished",
+      kind: "direct",
+      updatedAt: 1_700,
+      sessionId: "sess-finished",
+      status: "done",
+      startedAt: 900,
+      endedAt: 1_700,
+      runtimeMs: 800,
+      hasActiveRun: false,
+    });
+    const { broadcastToConnIds, sessionEventSubscribers, handler } = createHarness({
+      resolveSessionKeyForRun: () => "session-finished",
+    });
+    sessionEventSubscribers.subscribe("conn-session");
+    registerAgentRunContext("run-finished", { sessionKey: "session-finished" });
+
+    handler({
+      runId: "run-finished",
+      seq: 1,
+      stream: "lifecycle",
+      ts: 1_700,
+      data: {
+        phase: "end",
+        startedAt: 900,
+        endedAt: 1_700,
+      },
+    });
+
+    expect(broadcastToConnIds.mock.calls.some(([event]) => event === "sessions.changed")).toBe(
+      false,
+    );
+
+    registerAgentRunContext("run-new", { sessionKey: "session-finished" });
+    handler({
+      runId: "run-new",
+      seq: 1,
+      stream: "lifecycle",
+      ts: 1_800,
+      data: {
+        phase: "start",
+        startedAt: 1_800,
+      },
+    });
+
+    await vi.waitFor(() => {
+      const sessionsChangedCalls = broadcastToConnIds.mock.calls.filter(
+        ([event]) => event === "sessions.changed",
+      );
+      expect(sessionsChangedCalls).toHaveLength(1);
+      expectPayloadFields(sessionsChangedCalls[0]?.[1], {
+        phase: "start",
+        runId: "run-new",
+        status: "running",
+        startedAt: 1_800,
+      });
+    });
+
+    resolveTerminalPersist(true);
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const sessionsChangedCalls = broadcastToConnIds.mock.calls.filter(
+      ([event]) => event === "sessions.changed",
+    );
+    expect(sessionsChangedCalls).toHaveLength(1);
+    resetAgentRunContextForTest();
+  });
+
   it("does not broadcast terminal session status when persistence skips the event", async () => {
     persistGatewaySessionLifecycleEventMock.mockResolvedValueOnce(false);
     const { broadcastToConnIds, sessionEventSubscribers, handler } = createHarness({

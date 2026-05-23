@@ -202,6 +202,35 @@ describe("session lifecycle state", () => {
     ).toEqual({});
   });
 
+  it("reuses stored timing for terminal events from the same stored run", () => {
+    expect(
+      derivePersistedSessionLifecyclePatch({
+        entry: {
+          updatedAt: 150,
+          status: "running",
+          startedAt: 100,
+          lifecycleRunId: "run-1",
+        },
+        event: {
+          runId: "run-1",
+          ts: 250,
+          data: {
+            phase: "error",
+            endedAt: 240,
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 240,
+      status: "failed",
+      startedAt: 100,
+      endedAt: 240,
+      runtimeMs: 140,
+      abortedLastRun: false,
+      lifecycleRunId: "run-1",
+    });
+  });
+
   it("ignores terminal lifecycle events for a previous active run without start time", () => {
     expect(
       derivePersistedSessionLifecyclePatch({
@@ -253,6 +282,64 @@ describe("session lifecycle state", () => {
           status: "done",
           startedAt: 100,
           endedAt: 140,
+          lifecycleRunId: "run-old",
+        },
+        event: {
+          runId: "run-new",
+          ts: 250,
+          data: {
+            phase: "error",
+            startedAt: 200,
+            endedAt: 240,
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 240,
+      status: "failed",
+      startedAt: 200,
+      endedAt: 240,
+      runtimeMs: 40,
+      abortedLastRun: false,
+      lifecycleRunId: "run-new",
+    });
+  });
+
+  it("allows newer terminal events without reusing stored timing from another run", () => {
+    expect(
+      derivePersistedSessionLifecyclePatch({
+        entry: {
+          updatedAt: 150,
+          status: "done",
+          startedAt: 100,
+          endedAt: 140,
+          lifecycleRunId: "run-old",
+        },
+        event: {
+          runId: "run-new",
+          ts: 250,
+          data: {
+            phase: "error",
+            endedAt: 240,
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: 240,
+      status: "failed",
+      startedAt: undefined,
+      endedAt: 240,
+      runtimeMs: undefined,
+      abortedLastRun: false,
+      lifecycleRunId: "run-new",
+    });
+  });
+
+  it("allows terminal errors when only a stale lifecycle run id was carried forward", () => {
+    expect(
+      derivePersistedSessionLifecyclePatch({
+        entry: {
+          updatedAt: 150,
           lifecycleRunId: "run-old",
         },
         event: {

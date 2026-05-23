@@ -464,6 +464,7 @@ function cloneCheckpointSessionEntry(params: {
     endedAt: undefined,
     runtimeMs: undefined,
     status: undefined,
+    lifecycleRunId: undefined,
     inputTokens: undefined,
     outputTokens: undefined,
     cacheRead: undefined,

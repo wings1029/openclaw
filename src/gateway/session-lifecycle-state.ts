@@ -69,7 +69,14 @@ function resolveTerminalStatus(event: LifecycleEventLike): SessionRunStatus {
   return event.data?.aborted === true ? "timeout" : "done";
 }
 
-function resolveLifecycleStartedAt(
+function resolveLifecycleStartPhaseStartedAt(event: LifecycleEventLike): number | undefined {
+  if (isFiniteTimestamp(event.data?.startedAt)) {
+    return event.data.startedAt;
+  }
+  return isFiniteTimestamp(event.ts) ? event.ts : undefined;
+}
+
+function resolveTerminalLifecycleStartedAt(
   existingStartedAt: number | undefined,
   event: LifecycleEventLike,
 ): number | undefined {
@@ -79,7 +86,7 @@ function resolveLifecycleStartedAt(
   if (isFiniteTimestamp(existingStartedAt)) {
     return existingStartedAt;
   }
-  return isFiniteTimestamp(event.ts) ? event.ts : undefined;
+  return undefined;
 }
 
 function resolveLifecycleEndedAt(event: LifecycleEventLike): number | undefined {
@@ -121,14 +128,17 @@ function terminalEventPredatesStoredRun(params: {
   const eventStartedAt = isFiniteTimestamp(params.event.data?.startedAt)
     ? params.event.data.startedAt
     : undefined;
-  if (entryRunId && eventRunId && entryRunId !== eventRunId) {
-    return (
-      eventStartedAt === undefined ||
-      entryStartedAt === undefined ||
-      eventStartedAt <= entryStartedAt
-    );
-  }
   const eventEndedAt = resolveLifecycleEndedAt(params.event);
+  if (entryRunId && eventRunId && entryRunId !== eventRunId) {
+    if (eventStartedAt !== undefined && entryStartedAt !== undefined) {
+      return eventStartedAt <= entryStartedAt;
+    }
+    const entryTerminalAt = resolveStoredTerminalAt(params.entry);
+    if (entryTerminalAt !== undefined && eventEndedAt !== undefined) {
+      return eventEndedAt <= entryTerminalAt;
+    }
+    return entryStartedAt !== undefined;
+  }
   if (entryRunId && eventRunId && entryRunId === eventRunId) {
     const entryTerminalAt = resolveStoredTerminalAt(params.entry);
     if (
@@ -146,6 +156,19 @@ function terminalEventPredatesStoredRun(params: {
     return eventStartedAt < entryStartedAt;
   }
   return eventEndedAt !== undefined && eventEndedAt < entryStartedAt;
+}
+
+function shouldReuseStoredLifecycleTiming(params: {
+  entry?: Partial<PersistedLifecycleSessionShape> | null;
+  event: LifecycleEventLike;
+}): boolean {
+  const phase = resolveLifecyclePhase(params.event);
+  if (phase !== "end" && phase !== "error") {
+    return true;
+  }
+  const entryRunId = params.entry?.lifecycleRunId?.trim();
+  const eventRunId = resolveLifecycleRunId(params.event);
+  return !(entryRunId && eventRunId && entryRunId !== eventRunId);
 }
 
 function resolveRuntimeMs(params: {
@@ -178,7 +201,7 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
 
   const existing = params.session ?? undefined;
   if (phase === "start") {
-    const startedAt = resolveLifecycleStartedAt(existing?.startedAt, params.event);
+    const startedAt = resolveLifecycleStartPhaseStartedAt(params.event);
     const updatedAt = startedAt ?? existing?.updatedAt;
     return {
       updatedAt,
@@ -190,7 +213,7 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
     };
   }
 
-  const startedAt = resolveLifecycleStartedAt(existing?.startedAt, params.event);
+  const startedAt = resolveTerminalLifecycleStartedAt(existing?.startedAt, params.event);
   const endedAt = resolveLifecycleEndedAt(params.event);
   const updatedAt = endedAt ?? existing?.updatedAt;
   return {
@@ -215,8 +238,9 @@ export function derivePersistedSessionLifecyclePatch(params: {
   if (terminalEventPredatesStoredRun(params)) {
     return {};
   }
+  const session = shouldReuseStoredLifecycleTiming(params) ? params.entry : undefined;
   const snapshot = deriveGatewaySessionLifecycleSnapshot({
-    session: params.entry ?? undefined,
+    session,
     event: params.event,
   });
   const lifecycleRunId = resolveLifecycleRunId(params.event);

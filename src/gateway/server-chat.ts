@@ -233,6 +233,10 @@ export function createAgentEventHandler({
   isChatSendRunActive = () => false,
 }: AgentEventHandlerOptions) {
   const pendingTerminalLifecycleErrors = new Map<string, NodeJS.Timeout>();
+  const latestLifecycleStartBySessionKey = new Map<
+    string,
+    { runId: string; startedAt: number | undefined }
+  >();
 
   type AgentTextThrottleStream = "assistant" | "thinking";
 
@@ -268,6 +272,47 @@ export function createAgentEventHandler({
     }
     clearTimeout(pending);
     pendingTerminalLifecycleErrors.delete(runId);
+  };
+
+  const resolveLifecycleSessionKey = (sessionKey: string) =>
+    resolveGatewaySessionLifecycleStoreTarget({ sessionKey })?.sessionKey ?? sessionKey;
+
+  const resolveLifecycleStartTimestamp = (evt: AgentEventPayload): number | undefined => {
+    const startedAt = evt.data?.startedAt;
+    if (typeof startedAt === "number" && Number.isFinite(startedAt)) {
+      return startedAt;
+    }
+    return Number.isFinite(evt.ts) ? evt.ts : undefined;
+  };
+
+  const resolveLifecycleTerminalTimestamp = (evt: AgentEventPayload): number | undefined => {
+    const endedAt = evt.data?.endedAt;
+    if (typeof endedAt === "number" && Number.isFinite(endedAt)) {
+      return endedAt;
+    }
+    return Number.isFinite(evt.ts) ? evt.ts : undefined;
+  };
+
+  const recordLifecycleStart = (sessionKey: string, evt: AgentEventPayload) => {
+    latestLifecycleStartBySessionKey.set(resolveLifecycleSessionKey(sessionKey), {
+      runId: evt.runId,
+      startedAt: resolveLifecycleStartTimestamp(evt),
+    });
+  };
+
+  const hasNewerLifecycleStart = (sessionKey: string, evt: AgentEventPayload): boolean => {
+    const latestStart = latestLifecycleStartBySessionKey.get(
+      resolveLifecycleSessionKey(sessionKey),
+    );
+    if (!latestStart || latestStart.runId === evt.runId) {
+      return false;
+    }
+    const terminalAt = resolveLifecycleTerminalTimestamp(evt);
+    return (
+      latestStart.startedAt === undefined ||
+      terminalAt === undefined ||
+      latestStart.startedAt >= terminalAt
+    );
   };
 
   // Only subagent/acp keys can carry spawnedBy (mirrors supportsSpawnLineage in
@@ -478,6 +523,9 @@ export function createAgentEventHandler({
         .catch(() => false)
         .then((lifecycleApplied) => {
           if (!lifecycleApplied) {
+            return;
+          }
+          if (hasNewerLifecycleStart(sessionKey, evt)) {
             return;
           }
           broadcastLifecycleSessionChanged({
@@ -1025,6 +1073,7 @@ export function createAgentEventHandler({
     }
 
     if (sessionKey && lifecyclePhase === "start") {
+      recordLifecycleStart(sessionKey, evt);
       void persistGatewaySessionLifecycleEvent({ sessionKey, event: evt }).catch(() => undefined);
       broadcastLifecycleSessionChanged({
         sessionKey,
