@@ -5,8 +5,7 @@ import { resolveCliArgvInvocation } from "./argv-invocation.js";
 import { hasFlag } from "./argv.js";
 import { hasJsonOutputFlag } from "./json-output-mode.js";
 
-const COOL_OFF_FILENAME = "legacy-oauth-sidecar-migration-declined";
-const COOL_OFF_TTL_MS = 24 * 60 * 60 * 1000;
+const DECLINE_MARKER_FILENAME = "legacy-oauth-sidecar-migration-declined";
 
 const SKIPPED_PRIMARIES = new Set(["doctor", "update", "help", "completion", "version"]);
 
@@ -26,14 +25,13 @@ function hasSidecarFiles(env: NodeJS.ProcessEnv): boolean {
 }
 
 function resolveDeclineMarkerPath(env: NodeJS.ProcessEnv): string {
-  return path.join(resolveStateDir(env), COOL_OFF_FILENAME);
+  return path.join(resolveStateDir(env), DECLINE_MARKER_FILENAME);
 }
 
 function shouldSkip(params: {
   argv: string[];
   env: NodeJS.ProcessEnv;
   isInteractiveTty: () => boolean;
-  now: number;
 }): boolean {
   if (process.platform !== "darwin") {
     return true;
@@ -68,27 +66,22 @@ function shouldSkip(params: {
   if (!hasSidecarFiles(env)) {
     return true;
   }
-  try {
-    const stat = fs.statSync(resolveDeclineMarkerPath(env));
-    if (params.now - stat.mtimeMs < COOL_OFF_TTL_MS) {
-      return true;
-    }
-  } catch {}
+  if (fs.existsSync(resolveDeclineMarkerPath(env))) {
+    return true;
+  }
   return false;
 }
 
 export async function maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli(params: {
   argv: string[];
   env?: NodeJS.ProcessEnv;
-  now?: () => number;
   prompter?: AutoMigrateInteractivePrompter;
   isInteractiveTty?: () => boolean;
 }): Promise<void> {
   const env = params.env ?? process.env;
   const isInteractiveTty = params.isInteractiveTty ?? defaultIsInteractiveTty;
-  const now = params.now ?? Date.now;
 
-  if (shouldSkip({ argv: params.argv, env, isInteractiveTty, now: now() })) {
+  if (shouldSkip({ argv: params.argv, env, isInteractiveTty })) {
     return;
   }
 
@@ -127,12 +120,10 @@ export async function maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli(params:
       },
     });
 
-    const markerPath = resolveDeclineMarkerPath(env);
     if (declined && result.detected.length > 0) {
+      const markerPath = resolveDeclineMarkerPath(env);
       fs.mkdirSync(path.dirname(markerPath), { recursive: true });
       fs.writeFileSync(markerPath, `${new Date().toISOString()}\n`, "utf8");
-    } else if (result.changes.length > 0) {
-      fs.rmSync(markerPath, { force: true });
     }
   } catch {}
 }

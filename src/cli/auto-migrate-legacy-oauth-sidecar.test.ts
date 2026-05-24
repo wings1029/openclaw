@@ -418,7 +418,7 @@ describe("maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli", () => {
     expect(fs.existsSync(sidecarPath)).toBe(true);
   });
 
-  it("writes a decline marker on decline and honors it on the next run", async () => {
+  it("writes a permanent decline marker on decline and honors it on later runs", async () => {
     const { state } = await makeStateWithLegacyOauthRef("legacy-oauth-seed");
     const confirm = vi.fn(async () => false);
     await maybeAutoMigrateLegacyOAuthSidecarOnInteractiveCli({
