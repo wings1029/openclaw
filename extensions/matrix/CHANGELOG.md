@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026.5.25-alpha.1
+
+### Changes
+
+- Version alignment with core OpenClaw release numbers.
+
+## 2026.5.25
+
+### Changes
+
+- Version alignment with core OpenClaw release numbers.
+
 ## 2026.5.24
 
 ### Changes
