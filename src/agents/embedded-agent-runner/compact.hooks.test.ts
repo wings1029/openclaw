@@ -382,7 +382,7 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
   });
 
   it("uses the caller context token budget during runtime compaction", async () => {
-    await compactEmbeddedPiSessionDirect({
+    await compactEmbeddedAgentSessionDirect({
       sessionId: "session-1",
       sessionFile: "/tmp/session.jsonl",
       workspaceDir: "/tmp/workspace",
@@ -397,7 +397,7 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
   it("clamps the caller context token budget to the compaction model", async () => {
     resolveContextWindowInfoMock.mockReturnValueOnce({ tokens: 32_000 });
 
-    await compactEmbeddedPiSessionDirect({
+    await compactEmbeddedAgentSessionDirect({
       sessionId: "session-1",
       sessionFile: "/tmp/session.jsonl",
       workspaceDir: "/tmp/workspace",
@@ -1481,7 +1481,7 @@ describe("compactEmbeddedAgentSession hooks (ownsCompaction engine)", () => {
   it("clamps caller context token budget before queued engine-owned compaction", async () => {
     resolveContextWindowInfoMock.mockReturnValueOnce({ tokens: 32_000 });
 
-    await compactEmbeddedPiSession(
+    await compactEmbeddedAgentSession(
       wrappedCompactionArgs({
         contextTokenBudget: 64_000,
         config: {
