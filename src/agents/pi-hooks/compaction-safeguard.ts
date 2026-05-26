@@ -55,6 +55,8 @@ import {
 } from "./compaction-safeguard-runtime.js";
 
 const log = createSubsystemLogger("compaction-safeguard");
+const DEFAULT_POST_COMPACTION_SECTIONS = ["Session Startup", "Red Lines"];
+const LEGACY_POST_COMPACTION_SECTIONS = ["Every Session", "Safety"];
 
 // Track session managers that have already logged the missing-model warning to avoid log spam.
 const missedModelWarningSessions = new WeakSet<object>();
@@ -819,9 +821,7 @@ function extractLatestUserAsk(messages: AgentMessage[]): string | null {
 
 /**
  * Read and format critical workspace context for compaction summary.
- * Uses explicitly configured AGENTS.md section names only.
- * The default "Session Startup" / "Red Lines" pair preserves the legacy
- * "Every Session" / "Safety" fallback.
+ * Uses the legacy default section pair unless explicitly disabled or customized.
  * Limited to 2000 chars to avoid bloating the summary.
  */
 async function readWorkspaceContextForSummary(
@@ -829,7 +829,10 @@ async function readWorkspaceContextForSummary(
   workspaceDir = process.cwd(),
 ): Promise<string> {
   const MAX_SUMMARY_CONTEXT_CHARS = 2000;
-  if (!Array.isArray(sectionNames) || sectionNames.length === 0) {
+  const effectiveSectionNames = Array.isArray(sectionNames)
+    ? sectionNames
+    : DEFAULT_POST_COMPACTION_SECTIONS;
+  if (effectiveSectionNames.length === 0) {
     return "";
   }
   const agentsPath = path.join(workspaceDir, "AGENTS.md");
@@ -851,14 +854,14 @@ async function readWorkspaceContextForSummary(
         fs.closeSync(opened.fd);
       }
     })();
-    let sections = extractSections(content, sectionNames);
+    let sections = extractSections(content, effectiveSectionNames);
     if (
       sections.length === 0 &&
-      sectionNames.length === 2 &&
-      sectionNames.some((name) => name.trim().toLowerCase() === "session startup") &&
-      sectionNames.some((name) => name.trim().toLowerCase() === "red lines")
+      effectiveSectionNames.length === 2 &&
+      effectiveSectionNames.some((name) => name.trim().toLowerCase() === "session startup") &&
+      effectiveSectionNames.some((name) => name.trim().toLowerCase() === "red lines")
     ) {
-      sections = extractSections(content, ["Every Session", "Safety"]);
+      sections = extractSections(content, LEGACY_POST_COMPACTION_SECTIONS);
     }
 
     if (sections.length === 0) {

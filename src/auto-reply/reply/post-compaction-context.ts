@@ -95,20 +95,19 @@ export async function readPostCompactionContext(
     })();
 
     const configuredSections = cfg?.agents?.defaults?.compaction?.postCompactionSections;
-    if (!Array.isArray(configuredSections) || configuredSections.length === 0) {
+    const sectionNames = Array.isArray(configuredSections)
+      ? configuredSections
+      : DEFAULT_POST_COMPACTION_SECTIONS;
+    if (sectionNames.length === 0) {
       return null;
     }
-    const sectionNames = configuredSections;
 
     const foundSectionNames: string[] = [];
     let sections = extractSections(content, sectionNames, foundSectionNames);
 
-    // Legacy "Every Session" / "Safety" fallback is preserved only for users
-    // who explicitly opt in to the documented default section pair.
-    const isDefaultSections = matchesSectionSet(
-      configuredSections,
-      DEFAULT_POST_COMPACTION_SECTIONS,
-    );
+    // Legacy "Every Session" / "Safety" fallback is preserved when the field is
+    // unset or when users explicitly configure the documented default pair.
+    const isDefaultSections = matchesSectionSet(sectionNames, DEFAULT_POST_COMPACTION_SECTIONS);
     if (sections.length === 0 && isDefaultSections) {
       sections = extractSections(content, LEGACY_POST_COMPACTION_SECTIONS, foundSectionNames);
     }
