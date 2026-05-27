@@ -2,20 +2,42 @@
 
 Docs: https://docs.openclaw.ai
 
-## Unreleased
+## 2026.5.27
+
+### Highlights
+
+- Stronger security and content boundaries: group prompt text is kept out of the system prompt, repeated-dot hostnames are normalized, side-effecting command wrappers and unsafe Node runtime env overrides are blocked, no-auth Tailscale exposure is rejected, and node/device-role approvals now require admin authority. (#87144, #87305, #87292, #87308, #87146) Thanks @eleqtrizit and @pgondhi987.
+- More reliable Codex app-server runs: Codex runtime models resolve first, workspace memory is routed through tools, shared app-server clients survive startup and spawned-helper failures, native hook relay generations survive restarts and rotate on fresh fallbacks, and false runtime live switches are avoided. (#87383, #87403, #87375, #72574, #87428) Thanks @yetval.
+- Faster Gateway and reply paths: session reads, plugin metadata fingerprints, auth env snapshots, auto-enabled plugin config, tool-search catalogs, and stable metadata caches do less hot-path rediscovery while visible replies no longer inherit hidden cleanup timeouts. (#86439, #87044) Thanks @keshavbotagent.
+- Better provider and model coverage: OpenAI-compatible embedding providers are core, DeepInfra catalog browsing loads the full credential-aware model set, Pixverse adds video generation and API region selection, VLLM thinking params are wired, Claude CLI OAuth overlays load for PI auth profiles, and bare direct Anthropic model ids work. (#85269, #84549, #87167) Thanks @dutifulbob, @ats3v, and @joshavant.
+- Channel delivery is steadier: Telegram `sendMessage` actions use durable outbound delivery, Slack keeps delivered final replies during late cleanup, Matrix mention previews/finals are stricter, QQBot fallback approval buttons honor slash-command auth, Discord guild requester checks are tighter, and Google Chat stops thread sends in DMs. (#87261, #87154) Thanks @mbelinky and @eleqtrizit.
+- Release, package, and CI proof paths are harder to wedge: npm/package inventory honors dist exclusions, shrinkwrap override pins merge correctly, Docker runtime workspace templates are packaged and smoked, release postpublish checks are stricter, beta smoke rejects empty runs, and E2E log/probe waits are bounded.
 
 ### Changes
 
 - Memory: add a core OpenAI-compatible embedding provider for local and hosted OpenAI-style endpoints, with config, doctor, and docs support. (#85269) Thanks @dutifulbob.
 - Plugin SDK: mark memory-specific embedding provider registration as deprecated compatibility and surface non-bundled usage in plugin compatibility diagnostics. (#85072) Thanks @mbelinky.
+- Providers: add the Pixverse video generation provider, API region selection, docs, and external plugin packaging support.
+- DeepInfra: load the full model catalog when users browse models during onboarding, preserve configured API-key catalogs, refresh media/video defaults, and keep pricing/default model metadata aligned. (#84549) Thanks @ats3v.
+- Plugin SDK: expose plugin approval action metadata and stop exporting Vitest test helpers from the public SDK surface. (#87120) Thanks @RomneyDa.
+- Channel SDK: move channel message compatibility into core, remove old channel turn runtime aliases, and preserve runtime catalog markdown metadata for plugins.
+- ClawHub: add plugin display metadata so catalog/package listings use cleaner names. (#87354) Thanks @thewilloftheshadow.
+- Agents: split the heartbeat runtime template out of docs assets and add compatibility repair for legacy heartbeat template content. (#85416) Thanks @hxy91819.
 
 ### Fixes
 
-- Harden hostname normalization for repeated trailing dots [AI]. (#87305) Thanks @pgondhi987.
-- fix: block side-effecting command wrappers [AI]. (#87292) Thanks @pgondhi987.
-- Block unsafe Node runtime env overrides [AI]. (#87308) Thanks @pgondhi987.
-- Telegram: route `sendMessage` action replies through durable outbound delivery so completed agent responses remain retryable when the gateway send path times out. (#87261) Thanks @mbelinky.
-- Gateway/security: require `operator.admin` for node and other non-operator device-role pairing approvals, including trusted-proxy sessions, while keeping pairing-only approvals available for operator-role requests. (#87146)
+- Security/content boundaries: route untrusted group prompt metadata outside system prompts, normalize repeated trailing hostname dots, block side-effecting command wrappers, reject unsafe Node runtime env overrides, reject no-auth Tailscale exposure, enforce `/allowlist configWrites` origin policy, gate QQBot fallback approval buttons, and require admin for node/device-role approvals. (#87144, #87305, #87292, #87308, #87146, #87154) Thanks @eleqtrizit and @pgondhi987.
+- Codex: resolve Codex runtime models before generic routing, route workspace memory through tools, preserve shared app-server clients after startup and spawned-helper failures, preserve native hook relay generations across restarts and fresh fallbacks, keep raw reasoning/source-reply guards intact, keep the attempt watchdog armed for queued terminal turns, and route Codex OAuth compaction through OpenAI-Codex. (#87383, #87403, #87375, #72574, #87428) Thanks @yetval.
+- Agents/runtime: avoid session event queue self-waits, bound compaction wake and steering retries, preserve grace for pending error diagnostics, avoid false Codex runtime live switches, preserve session fallback errors, suppress duplicate Claude CLI skill prompts, keep runtime context before active user turns, strip stale Anthropic thinking, quarantine unsupported tool schemas, recover completed write timeouts safely, and validate forced plugin harness support before pinning. (#86123, #55424, #86855, #74341) Thanks @luoyanglang and @cathrynlavery.
+- Reply/session delivery: keep visible turn admission unbounded, keep visible fallback delivery on latest targets, preserve bridge hook context, classify direct fallback targets by channel grammar, report approval resolutions in bridge mode, and avoid stale source-reply artifacts. (#87044) Thanks @keshavbotagent.
+- Channels: make Telegram `sendMessage` action replies durable and preserve SecretRef prompt config, keep Slack delivered final replies during late cleanup, keep Matrix mention previews/finals mention-inert and normally delivered, ignore filename-embedded Matrix IDs, suppress Google Chat thread sends in DMs, and harden Discord guild requester checks. (#87261) Thanks @mbelinky.
+- Memory: salvage QMD search JSON after nonzero exits and keep workspace memory routing through the Codex tool path where possible. (#87225, #87383, #87403) Thanks @osolmaz.
+- Providers/models: forward cached token usage in OpenAI-compatible chat completions, load Claude CLI OAuth overlays for PI auth profiles, send bare direct Anthropic model ids, wire configured VLLM thinking params, honor OpenAI-compatible cache retention, normalize OpenAI Responses replay tool ids, and load DeepInfra custom/live catalogs consistently. (#82062, #87167, #84549) Thanks @caz0075, @joshavant, and @ats3v.
+- Gateway/performance: borrow read-only session metadata and active session working stores, cache current/stable plugin metadata fingerprints, cache auto-enabled plugin config, slim metadata identity caches, trust current metadata lifecycle caches, persist model auth profile suffixes, drain probe client closes, expire browser tokens after auth rotation, and keep default status fast paths bounded.
+- CLI/help/config: reject loose or malformed numeric options for gateway timeouts, model limits, directory limits, message options, webhooks, and partial values; route generated/root/plugin help targets correctly; keep skills JSON output flushing naturally; and keep plugin descriptor loading quiet in root help.
+- Plugin state/tool search: evict the current namespace when plugin rows hit caps, reuse unchanged tool-search catalogs, align the release catalog reuse wrapper, and keep fallback tool warnings mention-inert.
+- Install/package/release: match npm globstar exclusions, honor dist package exclusions in inventory, omit unpacked test helpers, skip Homebrew until macOS packages need it, package Docker runtime workspace templates, smoke Docker runtime templates during full validation, merge nested shrinkwrap override pins, preserve forked shrinkwrap pins, pin aged `lru-cache`, harden postpublish verification, accept main full-validation proof, and reject empty beta smoke runs.
+- E2E/QA/Crabbox: bound Telegram, Open WebUI, ClawHub, Matrix, Tool Search, MCP, gateway network, bundled runtime, kitchen-sink, codex media, config reload, and agent-turn assertion waits; prefer Azure for Windows targets; reinitialize invalid changed-gate git dirs; full-sync sparse container runs; and fail empty explicit test requests. (#87186)
 
 ## 2026.5.26
 
