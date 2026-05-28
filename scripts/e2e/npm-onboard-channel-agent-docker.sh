@@ -183,12 +183,20 @@ else
 fi
 
 echo "Running local agent turn against mocked OpenAI..."
+set +e
 openclaw agent --local \
   --agent main \
   --session-id npm-onboard-channel-agent \
+  --model openai/gpt-5.5 \
   --message "Return the success marker from the test server." \
   --thinking off \
   --json >/tmp/openclaw-agent.combined 2>&1
+agent_status=$?
+set -e
+if [ "$agent_status" -ne 0 ]; then
+  dump_debug_logs "$agent_status"
+  exit 1
+fi
 
 node scripts/e2e/lib/npm-onboard-channel-agent/assertions.mjs assert-agent-turn "$SUCCESS_MARKER" "$MOCK_REQUEST_LOG"
 
