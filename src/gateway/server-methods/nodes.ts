@@ -797,11 +797,31 @@ export const nodeHandlers: GatewayRequestHandlers = {
         declaredCommands: approvedNode.commands ?? [],
         allowlist: currentAllowlist,
       });
-      const updatedNode = context.nodeRegistry.updateSurface(approvedNode.nodeId, {
+      const liveNode = context.nodeRegistry.get(approvedNode.nodeId);
+      const approvedDeviceId = normalizeOptionalString(approvedNode.deviceId);
+      const liveDeviceId = normalizeOptionalString(liveNode?.client.connect.device?.id);
+      const liveNodeMatchesApprovedDevice = !approvedDeviceId || liveDeviceId === approvedDeviceId;
+      if (liveNode && !liveNodeMatchesApprovedDevice) {
+        context.nodeRegistry.unregister(liveNode.connId);
+        liveNode.client.socket.close(1008, "node pairing device changed");
+      }
+      const approvedSurface = {
         caps: approvedNode.caps ?? [],
         commands: currentAllowedCommands,
         permissions: approvedNode.permissions,
-      });
+      };
+      const quarantinedNode =
+        approvedDeviceId && approvedDeviceId !== approvedNode.nodeId
+          ? context.nodeRegistry.get(approvedDeviceId)
+          : undefined;
+      const quarantinedNodeMatchesApprovedDevice =
+        normalizeOptionalString(quarantinedNode?.client.connect.device?.id) === approvedDeviceId;
+      const updatedNode =
+        quarantinedNode && quarantinedNodeMatchesApprovedDevice
+          ? context.nodeRegistry.adoptNodeId(approvedDeviceId, approvedNode.nodeId, approvedSurface)
+          : liveNodeMatchesApprovedDevice
+            ? context.nodeRegistry.updateSurface(approvedNode.nodeId, approvedSurface)
+            : null;
       if (updatedNode) {
         refreshConnectedNodeSurfaceCaches({ context, nodeSession: updatedNode, cfg });
       }
@@ -1005,7 +1025,10 @@ export const nodeHandlers: GatewayRequestHandlers = {
       });
       return;
     }
-    const nodeId = client?.connect?.device?.id ?? client?.connect?.client?.id;
+    const nodeId =
+      context?.nodeRegistry?.getByConnId?.(client?.connId)?.nodeId ??
+      client?.connect?.device?.id ??
+      client?.connect?.client?.id;
     const trimmedNodeId = normalizeOptionalString(nodeId) ?? "";
     if (!trimmedNodeId) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "nodeId required"));
@@ -1031,7 +1054,7 @@ export const nodeHandlers: GatewayRequestHandlers = {
       undefined,
     );
   },
-  "node.pending.ack": async ({ params, respond, client }) => {
+  "node.pending.ack": async ({ params, respond, client, context }) => {
     if (!validateNodePendingAckParams(params)) {
       respondInvalidParams({
         respond,
@@ -1040,7 +1063,10 @@ export const nodeHandlers: GatewayRequestHandlers = {
       });
       return;
     }
-    const nodeId = client?.connect?.device?.id ?? client?.connect?.client?.id;
+    const nodeId =
+      context?.nodeRegistry?.getByConnId?.(client?.connId)?.nodeId ??
+      client?.connect?.device?.id ??
+      client?.connect?.client?.id;
     const trimmedNodeId = normalizeOptionalString(nodeId) ?? "";
     if (!trimmedNodeId) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "nodeId required"));

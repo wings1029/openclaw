@@ -17,6 +17,7 @@ import { generatePairingToken, verifyPairingToken } from "./pairing-token.js";
 
 type NodeDeclaredSurface = {
   nodeId: string;
+  deviceId?: string;
   clientId?: string;
   clientMode?: string;
   displayName?: string;
@@ -94,6 +95,7 @@ function buildPendingNodePairingRequest(params: {
   return {
     requestId: params.requestId ?? randomUUID(),
     nodeId: params.req.nodeId,
+    deviceId: params.req.deviceId,
     clientId: params.req.clientId,
     clientMode: params.req.clientMode,
     displayName: params.req.displayName,
@@ -118,6 +120,7 @@ function refreshPendingNodePairingRequest(
 ): NodePairingPendingRequest {
   return {
     ...existing,
+    deviceId: existing.deviceId ?? incoming.deviceId,
     clientId: incoming.clientId ?? existing.clientId,
     clientMode: incoming.clientMode ?? existing.clientMode,
     displayName: incoming.displayName ?? existing.displayName,
@@ -147,6 +150,7 @@ function samePendingApprovalSurface(
   const incomingPermissions = incoming.permissions ?? existing.permissions;
   return (
     // Metadata-only reconnects may refresh one pending request; approval-surface changes supersede.
+    existing.deviceId === incoming.deviceId &&
     sameNodeApprovalSurfaceSet(existing.caps, incomingCaps) &&
     sameNodeApprovalSurfaceSet(existing.commands, incomingCommands) &&
     sameNodePermissionSurface(existing.permissions, incomingPermissions)
@@ -160,6 +164,7 @@ function mergeNodePairingReplacementInput(params: {
   const latest = params.existing[0];
   return {
     nodeId: params.incoming.nodeId,
+    deviceId: params.incoming.deviceId,
     clientId: params.incoming.clientId ?? latest?.clientId,
     clientMode: params.incoming.clientMode ?? latest?.clientMode,
     displayName: params.incoming.displayName ?? latest?.displayName,
@@ -311,6 +316,7 @@ export async function approveNodePairing(
     const existing = state.pairedByNodeId[pending.nodeId];
     const node: NodePairingPairedNode = {
       nodeId: pending.nodeId,
+      deviceId: pending.deviceId,
       token: newToken(),
       clientId: pending.clientId,
       clientMode: pending.clientMode,
@@ -405,6 +411,7 @@ export async function updatePairedNodeMetadata(
     const next: NodePairingPairedNode = {
       ...existing,
       clientId: patch.clientId ?? existing.clientId,
+      deviceId: patch.deviceId ?? existing.deviceId,
       clientMode: patch.clientMode ?? existing.clientMode,
       displayName: patch.displayName ?? existing.displayName,
       platform: patch.platform ?? existing.platform,

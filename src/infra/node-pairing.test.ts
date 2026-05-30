@@ -66,6 +66,87 @@ describe("node pairing tokens", () => {
     await tempDirs.cleanup();
   });
 
+  test("persists the verified device id on approved stable node pairings", async () => {
+    await withNodePairingDir(async (baseDir) => {
+      const request = await requestNodePairing(
+        {
+          nodeId: "stable-node-1",
+          deviceId: "device-1",
+          platform: "windows",
+          commands: ["system.which"],
+        },
+        baseDir,
+      );
+
+      await approveNodePairing(
+        request.request.requestId,
+        { callerScopes: ["operator.pairing", "operator.admin"] },
+        baseDir,
+      );
+
+      const paired = await getPairedNode("stable-node-1", baseDir);
+      expect(paired?.deviceId).toBe("device-1");
+    });
+  });
+
+  test("does not refresh a pending stable node request with a different device id", async () => {
+    await withNodePairingDir(async (baseDir) => {
+      const first = await requestNodePairing(
+        {
+          nodeId: "stable-node-1",
+          deviceId: "device-1",
+          platform: "windows",
+          commands: ["system.which"],
+        },
+        baseDir,
+      );
+      const second = await requestNodePairing(
+        {
+          nodeId: "stable-node-1",
+          deviceId: "device-2",
+          platform: "windows",
+          commands: ["system.which"],
+        },
+        baseDir,
+      );
+
+      expect(second.created).toBe(true);
+      expect(second.request.requestId).not.toBe(first.request.requestId);
+      expect(second.superseded).toEqual([
+        { requestId: first.request.requestId, nodeId: "stable-node-1" },
+      ]);
+      const list = await listNodePairing(baseDir);
+      expect(list.pending).toHaveLength(1);
+      expect(list.pending[0]?.deviceId).toBe("device-2");
+    });
+  });
+
+  test("does not inherit a stale device id into replacement pending requests", async () => {
+    await withNodePairingDir(async (baseDir) => {
+      await requestNodePairing(
+        {
+          nodeId: "stable-node-1",
+          deviceId: "device-1",
+          platform: "windows",
+          commands: ["system.which"],
+        },
+        baseDir,
+      );
+      await requestNodePairing(
+        {
+          nodeId: "stable-node-1",
+          platform: "windows",
+          commands: ["system.which", "system.run.prepare"],
+        },
+        baseDir,
+      );
+
+      const list = await listNodePairing(baseDir);
+      expect(list.pending).toHaveLength(1);
+      expect(list.pending[0]?.deviceId).toBeUndefined();
+    });
+  });
+
   test("reuses pending requests for metadata refreshes", async () => {
     await withNodePairingDir(async (baseDir) => {
       const first = await requestNodePairing(

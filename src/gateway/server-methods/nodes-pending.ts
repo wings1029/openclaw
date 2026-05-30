@@ -22,15 +22,17 @@ import type { GatewayRequestHandlers } from "./types.js";
 
 function resolveClientNodeId(
   client: { connect?: { device?: { id?: string }; client?: { id?: string } } } | null,
+  registeredNodeId?: string,
 ): string | null {
-  const nodeId = client?.connect?.device?.id ?? client?.connect?.client?.id ?? "";
+  const nodeId =
+    registeredNodeId ?? client?.connect?.device?.id ?? client?.connect?.client?.id ?? "";
   const trimmed = nodeId.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
 /** Gateway handlers for queueing work until a paired node reconnects. */
 export const nodePendingHandlers: GatewayRequestHandlers = {
-  "node.pending.drain": async ({ params, respond, client }) => {
+  "node.pending.drain": async ({ params, respond, client, context }) => {
     if (!validateNodePendingDrainParams(params)) {
       respondInvalidParams({
         respond,
@@ -39,7 +41,10 @@ export const nodePendingHandlers: GatewayRequestHandlers = {
       });
       return;
     }
-    const nodeId = resolveClientNodeId(client);
+    const nodeId = resolveClientNodeId(
+      client,
+      context.nodeRegistry?.getByConnId?.(client?.connId)?.nodeId,
+    );
     if (!nodeId) {
       respond(
         false,
