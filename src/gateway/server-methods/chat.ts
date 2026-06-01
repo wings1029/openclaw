@@ -143,6 +143,7 @@ import {
   resolveGatewayModelSupportsImages,
   resolveDeletedAgentIdFromSessionKey,
   readRecentSessionMessagesAsync,
+  resolveSessionNextRunModelRef,
   resolveSessionModelRef,
   resolveSessionStoreKey,
 } from "../session-utils.js";
@@ -2997,7 +2998,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       agentId: selectedAgent.agentId,
       mainKey: cfg.session?.mainKey,
     });
-    const resolvedSessionModel = resolveSessionModelRef(cfg, entry, agentId);
+    const resolvedSessionModel = resolveSessionNextRunModelRef(cfg, entry, agentId);
     const resolvedSessionAuthProvider = resolveProviderIdForAuth(resolvedSessionModel.provider, {
       config: cfg,
     });

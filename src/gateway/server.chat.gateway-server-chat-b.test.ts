@@ -654,6 +654,145 @@ describe("gateway server chat", () => {
     },
   );
 
+  test("chat.send checks attachments against selected model when auto auth runtime metadata is stale", async () => {
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
+    try {
+      testState.sessionStorePath = path.join(sessionDir, "sessions.json");
+      testState.agentConfig = {
+        model: {
+          primary: "minimax/MiniMax-M2.7",
+        },
+        models: {
+          "minimax/MiniMax-M2.7": {},
+          "deepseek/deepseek-v4-flash": {},
+        },
+      };
+      await writeSessionStore({
+        entries: {
+          main: {
+            sessionId: "sess-main",
+            modelProvider: "deepseek",
+            model: "deepseek-v4-flash",
+            authProfileOverride: "deepseek:default",
+            authProfileOverrideSource: "auto",
+            updatedAt: Date.now(),
+          },
+        },
+      });
+
+      const context = {
+        loadGatewayModelCatalog: vi.fn<GatewayRequestContext["loadGatewayModelCatalog"]>(
+          async () => [
+            {
+              id: "MiniMax-M2.7",
+              name: "MiniMax M2.7",
+              provider: "minimax",
+              input: ["text"],
+            },
+            {
+              id: "deepseek-v4-flash",
+              name: "DeepSeek V4 Flash",
+              provider: "deepseek",
+              input: ["text", "image"],
+            },
+          ],
+        ),
+        logGateway: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+        },
+        agentRunSeq: new Map<string, number>(),
+        chatAbortControllers: new Map(),
+        chatAbortedRuns: new Map(),
+        chatRunBuffers: new Map(),
+        chatDeltaSentAt: new Map(),
+        chatDeltaLastBroadcastLen: new Map(),
+        chatDeltaLastBroadcastText: new Map(),
+        addChatRun: vi.fn(),
+        removeChatRun: vi.fn(),
+        broadcast: vi.fn(),
+        nodeSendToSession: vi.fn(),
+        registerToolEventRecipient: vi.fn(),
+        dedupe: new Map(),
+      } as unknown as GatewayRequestContext;
+      const pngB64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/woAAn8B9FD5fHAAAAAASUVORK5CYII=";
+      let captured: { ctx?: Record<string, unknown>; replyOptions?: GetReplyOptions } | undefined;
+      dispatchInboundMessageMock.mockImplementationOnce(async (...args: unknown[]) => {
+        const [params] = args as [
+          {
+            ctx: Record<string, unknown>;
+            replyOptions?: GetReplyOptions;
+          },
+        ];
+        captured = {
+          ctx: params.ctx,
+          replyOptions: params.replyOptions,
+        };
+      });
+
+      const { chatHandlers } = await import("./server-methods/chat.js");
+      const responses: Array<{ ok: boolean; payload?: unknown; error?: unknown }> = [];
+      await chatHandlers["chat.send"]({
+        req: {
+          type: "req",
+          id: "stale-auto-auth-image-preflight",
+          method: "chat.send",
+          params: {
+            sessionKey: "main",
+            message: "see image",
+            idempotencyKey: "idem-stale-auto-auth-image-preflight",
+            attachments: [
+              {
+                type: "image",
+                mimeType: "image/png",
+                fileName: "dot.png",
+                content: pngB64,
+              },
+            ],
+          },
+        },
+        params: {
+          sessionKey: "main",
+          message: "see image",
+          idempotencyKey: "idem-stale-auto-auth-image-preflight",
+          attachments: [
+            {
+              type: "image",
+              mimeType: "image/png",
+              fileName: "dot.png",
+              content: pngB64,
+            },
+          ],
+        },
+        client: null,
+        isWebchatConnect: () => false,
+        respond: ((ok, payload, error) => {
+          responses.push({ ok, payload, error });
+        }) as RespondFn,
+        context,
+      });
+
+      expect(responses[0]?.ok).toBe(true);
+      await vi.waitFor(() => expect(captured).toBeDefined(), FAST_WAIT_OPTS);
+      expect(captured?.replyOptions?.images).toBeUndefined();
+      expect(captured?.ctx?.MediaPath).toEqual(expect.any(String));
+      expect(captured?.ctx?.MediaPaths).toEqual([expect.any(String)]);
+      expect(captured?.ctx?.MediaType).toBe("image/png");
+      expect(captured?.ctx?.MediaTypes).toEqual(["image/png"]);
+      expect(captured?.ctx?.MediaStaged).toBe(true);
+      await vi.waitFor(() => expect(context.removeChatRun).toHaveBeenCalledTimes(1));
+    } finally {
+      dispatchInboundMessageMock.mockReset();
+      testState.agentConfig = undefined;
+      testState.sessionStorePath = undefined;
+      clearConfigCache();
+      await fs.rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
   test("chat.send reuses an active internal run for duplicate WebChat text sends", async () => {
     const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
     const dispatchRelease = createDeferred<void>();

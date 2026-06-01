@@ -2182,6 +2182,43 @@ describe("listSessionsFromStore selected model display", () => {
     expect(result.sessions[0]?.model).toBe("MiniMax-M2.7");
   });
 
+  test("respects channel-selected model when checking stale auto auth runtime metadata", () => {
+    const cfg = {
+      agents: {
+        defaults: { model: { primary: "openai/gpt-5.4" } },
+        list: [{ id: "main", model: { primary: "minimax/MiniMax-M2.7" } }],
+      },
+      channels: {
+        modelByChannel: {
+          telegram: {
+            "*": "anthropic/claude-opus-4-6",
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = listSessionsFromStore({
+      cfg,
+      storePath: "/tmp/sessions.json",
+      store: {
+        "agent:main:main": {
+          sessionId: "sess-main",
+          updatedAt: Date.now(),
+          channel: "telegram",
+          chatType: "direct",
+          modelProvider: "anthropic",
+          model: "claude-opus-4-6",
+          authProfileOverride: "anthropic:default",
+          authProfileOverrideSource: "auto",
+        } as SessionEntry,
+      },
+      opts: {},
+    });
+
+    expect(result.sessions[0]?.modelProvider).toBe("anthropic");
+    expect(result.sessions[0]?.model).toBe("claude-opus-4-6");
+  });
+
   test("uses complete model overrides without default-model fallback", () => {
     const cfg = {
       agents: {

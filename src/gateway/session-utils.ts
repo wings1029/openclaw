@@ -24,6 +24,7 @@ import {
   modelSupportsInput,
   type ModelCatalogEntry,
 } from "../agents/model-catalog.js";
+import { resolveModelRefFromString } from "../agents/model-selection-shared.js";
 import {
   inferUniqueProviderFromConfiguredModels,
   isCliProvider,
@@ -49,6 +50,7 @@ import {
   shouldKeepSubagentRunChildLink,
 } from "../agents/subagent-run-liveness.js";
 import { listThinkingLevelOptions } from "../auto-reply/thinking.js";
+import { resolveChannelModelOverride } from "../channels/model-overrides.js";
 import { getRuntimeConfig } from "../config/io.js";
 import { resolveAgentModelFallbackValues } from "../config/model-input.js";
 import { resolveStateDir } from "../config/paths.js";
@@ -778,11 +780,19 @@ function resolveStaleAutoRuntimeExpectedModelRef(params: {
         | "modelOverride"
         | "modelProvider"
         | "model"
+        | "channel"
+        | "origin"
+        | "lastChannel"
+        | "groupId"
+        | "chatType"
+        | "groupChannel"
+        | "subject"
+        | "parentSessionKey"
       >;
   agentId?: string;
   allowPluginNormalization?: boolean;
 }): ReturnType<typeof resolveSessionModelRef> | null {
-  const expected = params.agentId
+  const defaultSelection = params.agentId
     ? resolveDefaultModelForAgent({
         cfg: params.cfg,
         agentId: params.agentId,
@@ -794,6 +804,26 @@ function resolveStaleAutoRuntimeExpectedModelRef(params: {
         defaultModel: DEFAULT_MODEL,
         allowPluginNormalization: params.allowPluginNormalization,
       });
+  const channelModelOverride = params.entry
+    ? resolveChannelModelOverride({
+        cfg: params.cfg,
+        channel: params.entry.channel ?? params.entry.origin?.provider ?? params.entry.lastChannel,
+        groupId: params.entry.groupId,
+        groupChatType: params.entry.chatType,
+        groupChannel: params.entry.groupChannel,
+        groupSubject: params.entry.subject,
+        parentSessionKey: params.entry.parentSessionKey,
+      })
+    : null;
+  const channelSelection = channelModelOverride
+    ? resolveModelRefFromString({
+        cfg: params.cfg,
+        raw: channelModelOverride.model,
+        defaultProvider: defaultSelection.provider,
+        allowPluginNormalization: params.allowPluginNormalization,
+      })?.ref
+    : null;
+  const expected = channelSelection ?? defaultSelection;
   return hasStaleAutoRuntimeAuthProfileSelection(params.entry, {
     ...expected,
     config: params.cfg,
@@ -1692,6 +1722,45 @@ export function resolveSessionModelRef(
     return persisted;
   }
   return resolved;
+}
+
+export function resolveSessionNextRunModelRef(
+  cfg: OpenClawConfig,
+  entry?:
+    | SessionEntry
+    | Pick<
+        SessionEntry,
+        | "authProfileOverride"
+        | "authProfileOverrideCompactionCount"
+        | "authProfileOverrideSource"
+        | "providerOverride"
+        | "modelOverride"
+        | "modelProvider"
+        | "model"
+        | "channel"
+        | "origin"
+        | "lastChannel"
+        | "groupId"
+        | "chatType"
+        | "groupChannel"
+        | "subject"
+        | "parentSessionKey"
+      >,
+  agentId?: string,
+  options?: { allowPluginNormalization?: boolean },
+): { provider: string; model: string } {
+  const staleRuntimeExpected = resolveStaleAutoRuntimeExpectedModelRef({
+    cfg,
+    entry,
+    agentId,
+    allowPluginNormalization: options?.allowPluginNormalization,
+  });
+  if (staleRuntimeExpected) {
+    return staleRuntimeExpected;
+  }
+  return resolveSessionModelRef(cfg, entry, agentId, {
+    allowPluginNormalization: options?.allowPluginNormalization,
+  });
 }
 
 export async function resolveGatewayModelSupportsImages(params: {
