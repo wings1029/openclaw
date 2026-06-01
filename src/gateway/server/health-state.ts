@@ -87,6 +87,8 @@ export async function refreshGatewayHealthSnapshot(opts?: {
   getEventLoopHealth?: () => GatewayEventLoopHealth | undefined;
 }) {
   const includeSensitive = opts?.includeSensitive === true;
+  // Sensitive health may include paths/auth details, so keep its in-flight
+  // promise separate from public refreshes that can be cached and broadcast.
   let refresh = includeSensitive ? sensitiveHealthRefresh : healthRefresh;
   if (!refresh) {
     refresh = (async () => {
@@ -94,6 +96,8 @@ export async function refreshGatewayHealthSnapshot(opts?: {
       try {
         runtimeSnapshot = opts?.getRuntimeSnapshot?.();
       } catch {
+        // Health refresh should survive transient channel snapshot failures and
+        // still report the rest of the gateway state.
         runtimeSnapshot = undefined;
       }
       const eventLoop = opts?.getEventLoopHealth?.();
@@ -104,6 +108,8 @@ export async function refreshGatewayHealthSnapshot(opts?: {
         ...(eventLoop ? { eventLoop } : {}),
       });
       if (!includeSensitive) {
+        // Only public health updates advance the client-visible version/cache;
+        // admin-sensitive probes are one-shot responses.
         healthCache = snap;
         healthVersion += 1;
         if (broadcastHealthUpdate) {
