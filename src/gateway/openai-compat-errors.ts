@@ -2,10 +2,14 @@ import type { FailoverReason } from "../agents/embedded-agent-helpers/types.js";
 import { describeFailoverError, resolveFailoverStatus } from "../agents/failover-error.js";
 
 export type OpenAiCompatError = {
+  /** HTTP status code to use for the OpenAI-compatible response. */
   status: number;
   error: {
+    /** Client-facing error message. */
     message: string;
+    /** OpenAI-compatible error type. */
     type: string;
+    /** Optional provider/failover error code when available. */
     code?: string;
   };
 };
@@ -78,11 +82,17 @@ export function resolveOpenAiCompatError(err: unknown): OpenAiCompatError | unde
   };
 }
 
+/** Validates OpenAI-compatible sampling values before forwarding them to providers. */
 export function validateOpenAiSamplingParams(params: {
+  /** OpenAI temperature value; valid range is 0 through 2. */
   temperature?: unknown;
+  /** OpenAI top_p value; valid range is 0 through 1. */
   topP?: unknown;
+  /** OpenAI frequency_penalty value; valid range is -2 through 2. */
   frequencyPenalty?: unknown;
+  /** OpenAI presence_penalty value; valid range is -2 through 2. */
   presencePenalty?: unknown;
+  /** OpenAI seed value; must be a finite integer when provided. */
   seed?: unknown;
 }): string | undefined {
   // Keep validation at the HTTP compatibility boundary so provider runtimes see
