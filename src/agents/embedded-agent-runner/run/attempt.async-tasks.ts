@@ -6,6 +6,7 @@ import {
   listTasksForOwnerOrRequesterSessionKeyForStatus,
 } from "../../../tasks/task-status-access.js";
 
+/** Tool metadata fields used to discover async media tasks launched during an attempt. */
 export type AsyncStartedToolMeta = {
   toolName?: string;
   asyncStarted?: boolean;
@@ -51,6 +52,10 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   }
 }
 
+/**
+ * Sleeps until the next poll tick unless the run aborts first, preserving
+ * AbortError semantics so outer attempt cleanup handles it like provider aborts.
+ */
 async function sleepWithAbort(
   ms: number,
   signal: AbortSignal | undefined,
@@ -80,6 +85,11 @@ async function sleepWithAbort(
   });
 }
 
+/**
+ * Collects async task run ids from current tool metadata plus the task registry.
+ * Registry scanning catches cron media tasks restored or discovered after the
+ * metadata batch that originally started the wait.
+ */
 function collectAsyncTaskRunIds(
   toolMetas: readonly AsyncStartedToolMeta[],
   sessionKey: string | undefined,
@@ -114,6 +124,7 @@ function collectAsyncTaskRunIds(
   return runIds;
 }
 
+/** Splits tracked async task run ids into terminal records and ids still pending. */
 function findTerminalTasks(runIds: readonly string[]): {
   pendingRunIds: string[];
   terminalTasks: TaskRecord[];
