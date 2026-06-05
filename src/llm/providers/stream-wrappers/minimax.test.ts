@@ -96,6 +96,111 @@ describe("createMinimaxThinkingDisabledWrapper", () => {
 
     expect(capturedThinking).toEqual({ type: "enabled", budget_tokens: 1024 });
   });
+
+  it("overwrites an unreadable configurable payload thinking field", () => {
+    let capturedThinking: unknown = undefined;
+    const baseStreamFn: StreamFn = (model, context, options) => {
+      const payload: Record<string, unknown> = {};
+      Object.defineProperty(payload, "thinking", {
+        configurable: true,
+        get() {
+          throw new Error("thinking getter failed");
+        },
+      });
+      options?.onPayload?.(payload, model);
+      return {} as ReturnType<StreamFn>;
+    };
+
+    const wrapped = createMinimaxThinkingDisabledWrapper(baseStreamFn);
+    expect(() =>
+      wrapped(
+        {
+          api: "anthropic-messages",
+          provider: "minimax",
+          id: "MiniMax-M2.7",
+        } as Model<"anthropic-messages">,
+        { messages: [] } as Context,
+        {
+          onPayload: (payload) => {
+            capturedThinking = (payload as Record<string, unknown>).thinking;
+          },
+        },
+      ),
+    ).not.toThrow();
+
+    expect(capturedThinking).toEqual({ type: "disabled" });
+  });
+
+  it("overwrites a hostile configurable payload thinking setter", () => {
+    let capturedThinking: unknown = undefined;
+    const baseStreamFn: StreamFn = (model, context, options) => {
+      const payload: Record<string, unknown> = {};
+      Object.defineProperty(payload, "thinking", {
+        configurable: true,
+        get() {
+          return undefined;
+        },
+        set() {
+          throw new Error("thinking setter failed");
+        },
+      });
+      options?.onPayload?.(payload, model);
+      return {} as ReturnType<StreamFn>;
+    };
+
+    const wrapped = createMinimaxThinkingDisabledWrapper(baseStreamFn);
+    expect(() =>
+      wrapped(
+        {
+          api: "anthropic-messages",
+          provider: "minimax",
+          id: "MiniMax-M2.7",
+        } as Model<"anthropic-messages">,
+        { messages: [] } as Context,
+        {
+          onPayload: (payload) => {
+            capturedThinking = (payload as Record<string, unknown>).thinking;
+          },
+        },
+      ),
+    ).not.toThrow();
+
+    expect(capturedThinking).toEqual({ type: "disabled" });
+  });
+
+  it("fails closed when the payload thinking field cannot be patched", () => {
+    let originalOnPayloadCalled = false;
+    const baseStreamFn: StreamFn = (model, context, options) => {
+      const payload: Record<string, unknown> = {};
+      Object.defineProperty(payload, "thinking", {
+        configurable: false,
+        get() {
+          throw new Error("thinking getter failed");
+        },
+      });
+      options?.onPayload?.(payload, model);
+      return {} as ReturnType<StreamFn>;
+    };
+
+    const wrapped = createMinimaxThinkingDisabledWrapper(baseStreamFn);
+    expect(() =>
+      wrapped(
+        {
+          api: "anthropic-messages",
+          provider: "minimax",
+          id: "MiniMax-M2.7",
+        } as Model<"anthropic-messages">,
+        { messages: [] } as Context,
+        {
+          onPayload: () => {
+            originalOnPayloadCalled = true;
+          },
+        },
+      ),
+    ).toThrow("MiniMax thinking disable payload patch failed");
+
+    expect(originalOnPayloadCalled).toBe(false);
+  });
 });
 
 describe("createMinimaxFastModeWrapper", () => {

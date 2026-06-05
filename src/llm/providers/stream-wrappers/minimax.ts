@@ -20,6 +20,31 @@ function isMinimaxAnthropicMessagesModel(model: { api?: unknown; provider?: unkn
   );
 }
 
+type PayloadFieldRead = { ok: true; value: unknown } | { ok: false };
+
+function readPayloadField(record: Record<string, unknown>, key: string): PayloadFieldRead {
+  try {
+    return { ok: true, value: record[key] };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function forcePayloadField(record: Record<string, unknown>, key: string, value: unknown): boolean {
+  try {
+    Object.defineProperty(record, key, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
+    const next = readPayloadField(record, key);
+    return next.ok && next.value === value;
+  } catch {
+    return false;
+  }
+}
+
 /** @deprecated MiniMax provider-owned stream helper; do not use from third-party plugins. */
 export function createMinimaxFastModeWrapper(
   baseStreamFn: StreamFn | undefined,
@@ -66,10 +91,14 @@ export function createMinimaxThinkingDisabledWrapper(baseStreamFn: StreamFn | un
       onPayload: (payload) => {
         if (payload && typeof payload === "object") {
           const payloadObj = payload as Record<string, unknown>;
+          const thinking = readPayloadField(payloadObj, "thinking");
           // Only inject if thinking is not already explicitly set.
           // This preserves unknown intentional override from other wrappers.
-          if (payloadObj.thinking === undefined) {
-            payloadObj.thinking = { type: "disabled" };
+          if (!thinking.ok || thinking.value === undefined) {
+            const disabledThinking = { type: "disabled" };
+            if (!forcePayloadField(payloadObj, "thinking", disabledThinking)) {
+              throw new Error("MiniMax thinking disable payload patch failed");
+            }
           }
         }
         return originalOnPayload?.(payload, model);
