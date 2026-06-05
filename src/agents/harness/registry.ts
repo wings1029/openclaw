@@ -2,7 +2,12 @@
  * Registry for native agent harness implementations and lifecycle cleanup.
  */
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import type { AgentHarness, AgentHarnessResetParams, RegisteredAgentHarness } from "./types.js";
+import type {
+  AgentHarness,
+  AgentHarnessDeliveryDefaults,
+  AgentHarnessResetParams,
+  RegisteredAgentHarness,
+} from "./types.js";
 
 /**
  * Process-wide registry for agent harnesses contributed by core and runtime plugins.
@@ -17,6 +22,20 @@ type AgentHarnessRegistryState = {
   harnesses: Map<string, RegisteredAgentHarness>;
 };
 
+const agentHarnessSnapshotFields = [
+  "label",
+  "pluginId",
+  "contextEngineHostCapabilities",
+  "deliveryDefaults",
+  "supports",
+  "runAttempt",
+  "runSideQuestion",
+  "classify",
+  "compact",
+  "reset",
+  "dispose",
+] as const satisfies readonly (keyof AgentHarness)[];
+
 function getAgentHarnessRegistryState(): AgentHarnessRegistryState {
   const globalState = globalThis as typeof globalThis & {
     [AGENT_HARNESS_REGISTRY_STATE]?: AgentHarnessRegistryState;
@@ -27,18 +46,80 @@ function getAgentHarnessRegistryState(): AgentHarnessRegistryState {
   return globalState[AGENT_HARNESS_REGISTRY_STATE];
 }
 
+function bindAgentHarnessFunction<TFunction>(harness: AgentHarness, fn: TFunction): TFunction {
+  if (typeof fn !== "function") {
+    return fn;
+  }
+  return function (this: unknown, ...args: unknown[]) {
+    return Reflect.apply(fn as (...args: unknown[]) => unknown, harness, args);
+  } as TFunction;
+}
+
+function snapshotAgentHarnessDeliveryDefaults(
+  value: unknown,
+): AgentHarnessDeliveryDefaults | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object") {
+    return value as AgentHarnessDeliveryDefaults;
+  }
+  const source = value as Partial<AgentHarnessDeliveryDefaults>;
+  if (source.sourceVisibleReplies === undefined) {
+    return {};
+  }
+  return { sourceVisibleReplies: source.sourceVisibleReplies };
+}
+
+function snapshotAgentHarnessValue(
+  harness: AgentHarness,
+  key: (typeof agentHarnessSnapshotFields)[number],
+  value: unknown,
+): unknown {
+  if (typeof value === "function") {
+    return bindAgentHarnessFunction(harness, value);
+  }
+  if (key === "contextEngineHostCapabilities" && Array.isArray(value)) {
+    return [...value];
+  }
+  if (key === "deliveryDefaults") {
+    return snapshotAgentHarnessDeliveryDefaults(value);
+  }
+  return value;
+}
+
+export function snapshotAgentHarness(
+  harness: AgentHarness,
+  options: { ownerPluginId?: string } = {},
+): AgentHarness {
+  const rawId = harness.id;
+  const id = typeof rawId === "string" ? rawId.trim() : "";
+  const snapshot = { id } as Partial<AgentHarness>;
+  for (const key of agentHarnessSnapshotFields) {
+    const value = harness[key];
+    if (value === undefined) {
+      continue;
+    }
+    snapshot[key] = snapshotAgentHarnessValue(harness, key, value) as never;
+  }
+  if (!snapshot.pluginId && options.ownerPluginId) {
+    snapshot.pluginId = options.ownerPluginId;
+  }
+  return snapshot as AgentHarness;
+}
+
 /** Registers or replaces an agent harness under its trimmed id. */
 export function registerAgentHarness(
   harness: AgentHarness,
   options?: { ownerPluginId?: string },
 ): void {
-  const id = harness.id.trim();
+  const snapshot = snapshotAgentHarness(harness, options);
+  const id = snapshot.id;
+  if (!id) {
+    throw new Error("agent harness registration missing id");
+  }
   getAgentHarnessRegistryState().harnesses.set(id, {
-    harness: {
-      ...harness,
-      id,
-      pluginId: harness.pluginId ?? options?.ownerPluginId,
-    },
+    harness: snapshot,
     ownerPluginId: options?.ownerPluginId,
   });
 }

@@ -13,6 +13,7 @@ import { clearCodeModeNamespacesForPlugin } from "../agents/code-mode-namespaces
 import {
   getRegisteredAgentHarness,
   registerAgentHarness as registerGlobalAgentHarness,
+  snapshotAgentHarness,
 } from "../agents/harness/registry.js";
 import type { AgentHarness } from "../agents/harness/types.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
@@ -1077,7 +1078,19 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
   };
 
   const registerAgentHarness = (record: PluginRecord, harness: AgentHarness) => {
-    const id = normalizeOptionalString((harness as Partial<AgentHarness> | undefined)?.id) ?? "";
+    let snapshot: AgentHarness;
+    try {
+      snapshot = snapshotAgentHarness(harness, { ownerPluginId: record.id });
+    } catch (error) {
+      pushDiagnostic({
+        level: "error",
+        pluginId: record.id,
+        source: record.source,
+        message: `agent harness registration has unreadable fields: ${formatErrorMessage(error)}`,
+      });
+      return;
+    }
+    const id = normalizeOptionalString(snapshot.id) ?? "";
     if (!id) {
       pushDiagnostic({
         level: "error",
@@ -1087,7 +1100,7 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       });
       return;
     }
-    if (typeof harness.supports !== "function" || typeof harness.runAttempt !== "function") {
+    if (typeof snapshot.supports !== "function" || typeof snapshot.runAttempt !== "function") {
       pushDiagnostic({
         level: "error",
         pluginId: record.id,
@@ -1116,19 +1129,14 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       });
       return;
     }
-    const normalizedHarness = {
-      ...harness,
-      id,
-      pluginId: harness.pluginId ?? record.id,
-    };
     if (registryParams.activateGlobalSideEffects !== false) {
-      registerGlobalAgentHarness(normalizedHarness, { ownerPluginId: record.id });
+      registerGlobalAgentHarness(snapshot, { ownerPluginId: record.id });
     }
     record.agentHarnessIds.push(id);
     registry.agentHarnesses.push({
       pluginId: record.id,
       pluginName: record.name,
-      harness: normalizedHarness,
+      harness: snapshot,
       source: record.source,
       rootDir: record.rootDir,
     });

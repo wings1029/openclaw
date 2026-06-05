@@ -79,6 +79,72 @@ describe("agent harness registry", () => {
     expect(listAgentHarnessIds()).toEqual(["custom"]);
   });
 
+  it("snapshots harness fields before registry lookup", async () => {
+    let idReads = 0;
+    let labelReads = 0;
+    let supportsReads = 0;
+    let resetReads = 0;
+    const events: string[] = [];
+
+    registerAgentHarness(
+      {
+        marker: "original",
+        get id() {
+          idReads += 1;
+          if (idReads > 1) {
+            throw new Error("agent harness id getter re-read");
+          }
+          return " volatile ";
+        },
+        get label() {
+          labelReads += 1;
+          if (labelReads > 1) {
+            throw new Error("agent harness label getter re-read");
+          }
+          return "Volatile";
+        },
+        get supports() {
+          supportsReads += 1;
+          if (supportsReads > 1) {
+            throw new Error("agent harness supports getter re-read");
+          }
+          return function (this: { marker?: string }) {
+            events.push(`supports:${this.marker ?? "missing"}`);
+            return { supported: true as const, priority: 20 };
+          };
+        },
+        async runAttempt() {
+          throw new Error("not used");
+        },
+        get reset() {
+          resetReads += 1;
+          if (resetReads > 1) {
+            throw new Error("agent harness reset getter re-read");
+          }
+          return async function (this: { marker?: string }) {
+            events.push(`reset:${this.marker ?? "missing"}`);
+          };
+        },
+      } as AgentHarness & { marker: string },
+      { ownerPluginId: "plugin-a" },
+    );
+
+    const harness = getAgentHarness("volatile");
+    expect(harness?.id).toBe("volatile");
+    expect(harness?.label).toBe("Volatile");
+    expect(harness?.pluginId).toBe("plugin-a");
+    expect(harness?.supports({ provider: "codex", requestedRuntime: "auto" })).toEqual({
+      supported: true,
+      priority: 20,
+    });
+    await harness?.reset?.({ reason: "reset" });
+    expect(events).toEqual(["supports:original", "reset:original"]);
+    expect(idReads).toBe(1);
+    expect(labelReads).toBe(1);
+    expect(supportsReads).toBe(1);
+    expect(resetReads).toBe(1);
+  });
+
   it("restores a registry snapshot", () => {
     registerAgentHarness(makeHarness("a"));
     const snapshot = listRegisteredAgentHarnesses();
