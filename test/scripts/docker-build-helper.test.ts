@@ -889,6 +889,9 @@ getconf() {
 }
 
 unset OPENCLAW_DOCKER_E2E_CPUS
+docker_e2e_docker_run_resource_args demo
+[[ "\${DOCKER_E2E_RUN_RESOURCE_ARGS[*]}" = "--memory 8g --cpus 4 --pids-limit 2048" ]]
+
 docker_e2e_set_default_cpus 16
 [[ "$OPENCLAW_DOCKER_E2E_CPUS" = "4" ]]
 

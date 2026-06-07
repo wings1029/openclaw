@@ -49,6 +49,40 @@ if ! declare -F docker_e2e_docker_run_resource_args >/dev/null 2>&1; then
     return 1
   }
 
+  docker_e2e_detect_host_cpus() {
+    local available=""
+
+    if command -v getconf >/dev/null 2>&1; then
+      available="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+    fi
+    if [[ -z "${available// }" ]] && command -v nproc >/dev/null 2>&1; then
+      available="$(nproc 2>/dev/null || true)"
+    fi
+
+    if [[ "$available" =~ ^[1-9][0-9]*$ ]]; then
+      printf '%s\n' "$available"
+      return 0
+    fi
+
+    return 1
+  }
+
+  docker_e2e_cap_cpu_limit() {
+    local requested="$1"
+    local available="${2:-}"
+
+    if [[ -z "${available// }" ]]; then
+      available="$(docker_e2e_detect_host_cpus || true)"
+    fi
+
+    if [[ "$requested" =~ ^[1-9][0-9]*$ ]] && [[ "$available" =~ ^[1-9][0-9]*$ ]] && (( requested > available )); then
+      printf '%s\n' "$available"
+      return 0
+    fi
+
+    printf '%s\n' "$requested"
+  }
+
   docker_e2e_docker_run_resource_args() {
     DOCKER_E2E_RUN_RESOURCE_ARGS=()
     if docker_e2e_resource_limits_disabled; then
@@ -56,8 +90,12 @@ if ! declare -F docker_e2e_docker_run_resource_args >/dev/null 2>&1; then
     fi
 
     local memory="${OPENCLAW_DOCKER_E2E_MEMORY:-8g}"
-    local cpus="${OPENCLAW_DOCKER_E2E_CPUS:-16}"
+    local cpus="${OPENCLAW_DOCKER_E2E_CPUS:-}"
     local pids_limit="${OPENCLAW_DOCKER_E2E_PIDS_LIMIT:-2048}"
+
+    if [[ -z "${OPENCLAW_DOCKER_E2E_CPUS+x}" ]]; then
+      cpus="$(docker_e2e_cap_cpu_limit 16)"
+    fi
 
     if ! docker_e2e_resource_value_disabled "$memory" && ! docker_e2e_run_arg_present --memory "$@"; then
       DOCKER_E2E_RUN_RESOURCE_ARGS+=(--memory "$memory")
