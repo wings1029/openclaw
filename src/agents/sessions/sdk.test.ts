@@ -284,6 +284,47 @@ describe("createAgentSession tool defaults", () => {
     expect(sessionManager.getEntries().some((entry) => entry.type === "compaction")).toBe(true);
   });
 
+  it("publishes extension-handled event locks as owned writes", async () => {
+    const events: string[] = [];
+    const lockOptions: Array<{ publishOwnedWrite?: boolean } | undefined> = [];
+    const handlers = new Map<string, Array<(...args: unknown[]) => Promise<unknown>>>([
+      [
+        "agent_start",
+        [
+          async () => {
+            events.push("hook");
+            return undefined;
+          },
+        ],
+      ],
+    ]);
+    const { session } = await createAgentSession({
+      model: testModel,
+      resourceLoader: createResourceLoaderWithHandlers(handlers),
+      sessionManager: SessionManager.inMemory(),
+      settingsManager: SettingsManager.inMemory(),
+      modelRegistry: ModelRegistry.inMemory(AuthStorage.inMemory()),
+      withSessionWriteLock: async (run, options) => {
+        lockOptions.push(options);
+        events.push("lock:start");
+        try {
+          return await run();
+        } finally {
+          events.push("lock:end");
+        }
+      },
+    });
+
+    const handleAgentEvent = (
+      session as unknown as { handleAgentEvent(event: unknown): Promise<void> }
+    )["handleAgentEvent"];
+
+    await handleAgentEvent({ type: "agent_start" });
+
+    expect(events).toEqual(["lock:start", "hook", "lock:end"]);
+    expect(lockOptions).toEqual([{ publishOwnedWrite: true }]);
+  });
+
   it("runs write-capable tool hooks under the configured write lock", async () => {
     const events: string[] = [];
     const handlers = new Map<string, Array<(...args: unknown[]) => Promise<unknown>>>([

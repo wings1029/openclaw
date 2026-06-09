@@ -555,10 +555,9 @@ export class AgentSession {
   /** Internal handler for agent events - shared by subscribe and reconnect */
   private handleAgentEvent = async (event: AgentEvent): Promise<void> => {
     if (this.eventMayWriteSession(event)) {
-      await this.runWithSessionWriteLock(
-        async () => await this.handleAgentEventUnlocked(event),
-        event.type === "message_end" ? { publishOwnedWrite: true } : undefined,
-      );
+      await this.runWithSessionWriteLock(async () => await this.handleAgentEventUnlocked(event), {
+        publishOwnedWrite: true,
+      });
       return;
     }
     await this.handleAgentEventUnlocked(event);
