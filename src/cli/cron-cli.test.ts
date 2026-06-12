@@ -1498,11 +1498,13 @@ describe("cron cli", () => {
   });
 
   it("sets explicit stagger for cron edit", async () => {
-    await runCronCommand(["cron", "edit", "job-1", "--cron", "0 * * * *", "--stagger", "30s"]);
+    // Use the schedule lookup helper because `--cron` edits now load the
+    // existing job to preserve tz/staggerMs (#92291).
+    const patch = await runCronEditWithScheduleLookup(
+      { kind: "cron", expr: "*/5 * * * *" },
+      ["--cron", "0 * * * *", "--stagger", "30s"],
+    );
 
-    const patch = getGatewayCallParams<{
-      patch?: { schedule?: { kind?: string; staggerMs?: number } };
-    }>("cron.update");
     expect(patch?.patch?.schedule?.kind).toBe("cron");
     expect(patch?.patch?.schedule?.staggerMs).toBe(30_000);
   });
