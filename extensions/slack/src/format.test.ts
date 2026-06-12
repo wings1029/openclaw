@@ -42,6 +42,27 @@ describe("markdownToSlackMrkdwn", () => {
       ["renders ordered lists with numbering", "2. two\n3. three", "2. two\n3. three"],
       ["renders headings as bold text", "# Title", "*Title*"],
       ["renders blockquotes", "> Quote", "> Quote"],
+      // Regression #92239: Slack mrkdwn renders empty when blockquote contains inline code
+      [
+        "replaces backtick code with bold inside blockquote lines",
+        "> `code` in blockquote",
+        "> *code* in blockquote",
+      ],
+      [
+        "preserves inline code outside blockquotes",
+        "`code` without blockquote",
+        "`code` without blockquote",
+      ],
+      [
+        "handles blockquote with inline code mid-sentence",
+        "> run `deploy` after build",
+        "> run *deploy* after build",
+      ],
+      [
+        "handles multiple code spans in one blockquote line",
+        "> before `one` middle `two` after",
+        "> before *one* middle *two* after",
+      ],
     ] as const;
     for (const [name, input, expected] of cases) {
       expect(markdownToSlackMrkdwn(input), name).toBe(expected);
@@ -92,5 +113,38 @@ describe("escapeSlackMrkdwn", () => {
 describe("normalizeSlackOutboundText", () => {
   it("normalizes markdown for outbound send/update paths", () => {
     expect(normalizeSlackOutboundText(" **bold** ")).toBe("*bold*");
+  });
+
+  it("sanitizes blockquote inline code to avoid Slack empty-message bug (#92239)", () => {
+    expect(normalizeSlackOutboundText("> `code` in blockquote")).toBe(
+      "> *code* in blockquote",
+    );
+  });
+
+  it("preserves inline code outside blockquotes", () => {
+    expect(normalizeSlackOutboundText("use `code` here")).toBe("use `code` here");
+  });
+});
+
+describe("sanitizeSlackBlockquoteCode (via markdownToSlackMrkdwn)", () => {
+  it("replaces inline code with bold in blockquote lines", () => {
+    expect(markdownToSlackMrkdwn("> `code` here")).toBe("> *code* here");
+  });
+
+  it("keeps inline code outside blockquotes unchanged", () => {
+    expect(markdownToSlackMrkdwn("`code` outside")).toBe("`code` outside");
+  });
+
+  it("handles blockquote lines without code unchanged", () => {
+    expect(markdownToSlackMrkdwn("> plain quote")).toBe("> plain quote");
+  });
+
+  it("handles multi-line text with mixed blockquote and non-blockquote code", () => {
+    const result = markdownToSlackMrkdwn(
+      "Top `code` here\n\n> `inner code` in quote\n\nBottom `more` text",
+    );
+    expect(result).toContain("> *inner code* in quote");
+    expect(result).toContain("Top `code` here");
+    expect(result).toContain("Bottom `more` text");
   });
 });

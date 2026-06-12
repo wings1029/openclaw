@@ -130,11 +130,34 @@ export function markdownToSlackMrkdwn(
     blockquotePrefix: "> ",
     tableMode: options.tableMode,
   });
-  return renderMarkdownWithMarkers(ir, buildSlackRenderOptions());
+  return sanitizeSlackBlockquoteCode(
+    renderMarkdownWithMarkers(ir, buildSlackRenderOptions()),
+  );
 }
 
 export function normalizeSlackOutboundText(markdown: string): string {
-  return markdownToSlackMrkdwn(markdown ?? "");
+  return sanitizeSlackBlockquoteCode(markdownToSlackMrkdwn(markdown ?? ""));
+}
+
+/**
+ * Slack mrkdwn can render an empty message when a blockquote line contains
+ * backtick-enclosed inline code (e.g. "> `code`").  Replace backtick
+ * formatting with bold inside blockquote lines to avoid the parser bug.
+ * See https://github.com/openclaw/openclaw/issues/92239.
+ */
+function sanitizeSlackBlockquoteCode(text: string): string {
+  if (!text || !text.includes("`")) {
+    return text;
+  }
+  return text
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("> ") && line.includes("`")) {
+        return line.replace(/`([^`]+)`/g, "*$1*");
+      }
+      return line;
+    })
+    .join("\n");
 }
 
 export function markdownToSlackMrkdwnChunks(
@@ -155,5 +178,5 @@ export function markdownToSlackMrkdwnChunks(
     limit,
     renderChunk: (chunk) => renderMarkdownWithMarkers(chunk, renderOptions),
     measureRendered: (rendered) => rendered.length,
-  }).map(({ rendered }) => rendered);
+  }).map(({ rendered }) => sanitizeSlackBlockquoteCode(rendered));
 }
