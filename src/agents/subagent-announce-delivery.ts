@@ -1384,6 +1384,28 @@ async function sendSubagentAnnounceDirectly(params: {
         )}`,
       );
     }
+    // When the active requester wake fails and there is a direct-message
+    // delivery target, try direct text completion delivery before the
+    // requester-agent handoff. This avoids a doomed handoff that will fail
+    // with SessionWriteLockTimeoutError when the requester session is
+    // inactive or its transcript is locked.
+    if (
+      activeRequesterWakeFailed &&
+      params.expectsCompletionMessage &&
+      isSubagentCompletion &&
+      deliveryTarget.deliver
+    ) {
+      const textDelivery = await deliverTextCompletionDirect({
+        cfg,
+        requesterSessionKey: canonicalRequesterSessionKey,
+        directIdempotencyKey: params.directIdempotencyKey,
+        deliveryTarget,
+        internalEvents: params.internalEvents,
+      });
+      if (textDelivery) {
+        return textDelivery;
+      }
+    }
     if (
       params.expectsCompletionMessage &&
       isCronRunSessionKey(canonicalRequesterSessionKey) &&
@@ -1477,13 +1499,28 @@ async function sendSubagentAnnounceDirectly(params: {
       }
       if (
         activeRequesterWakeFailed &&
-        agentMediatedCompletion &&
-        expectedMediaUrls.length > 0 &&
         isSessionWriteLockAnnounceAgentError(err)
       ) {
-        const generatedMediaDelivery = await tryGeneratedMediaDirectDelivery();
-        if (generatedMediaDelivery) {
-          return generatedMediaDelivery;
+        // When the requester session is locked after an active-wake failure,
+        // try direct text completion delivery before falling back to generated
+        // media. Without this, pure-text subagent completions are silently lost
+        // when both the active requester path and transcript write path are
+        // unavailable even though a direct-message route exists.
+        const textDelivery = await deliverTextCompletionDirect({
+          cfg,
+          requesterSessionKey: canonicalRequesterSessionKey,
+          directIdempotencyKey: params.directIdempotencyKey,
+          deliveryTarget,
+          internalEvents: params.internalEvents,
+        });
+        if (textDelivery) {
+          return textDelivery;
+        }
+        if (agentMediatedCompletion && expectedMediaUrls.length > 0) {
+          const generatedMediaDelivery = await tryGeneratedMediaDirectDelivery();
+          if (generatedMediaDelivery) {
+            return generatedMediaDelivery;
+          }
         }
       }
       // The requester-agent handoff is the delivery contract for background
