@@ -342,7 +342,9 @@ export function createReadToolDefinition(
             } else {
               // Read text content.
               const buffer = await ops.readFile(absolutePath);
-              const textContent = buffer.toString((encoding as BufferEncoding) ?? "utf-8");
+              // Use TextDecoder which supports WHATWG encoding labels
+              // (gbk, shift_jis, euc-jp, etc.) in addition to UTF-8.
+              const textContent = new TextDecoder(encoding ?? "utf-8").decode(buffer);
               const allLines = textContent.split("\n");
               const totalFileLines = allLines.length;
               // Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.

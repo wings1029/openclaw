@@ -1,10 +1,9 @@
 /**
  * End-to-end proof for #92664: Read tool encoding parameter.
  *
- * Creates a latin1-encoded file (invalid as UTF-8), reads it without encoding
- * → garbled, then reads it with encoding=latin1 → correct.
- *
- * Terminal output below demonstrates the fix working on real production code.
+ * Tests GBK-encoded Chinese file reading with the production read tool.
+ * Demonstrates the exact scenario from the issue: GBK bytes decoded as
+ * UTF-8 → mojibake, then with encoding=gbk → correct Chinese text.
  */
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,55 +16,63 @@ function assert(cond, label) {
   else { results.failed++; console.log("  ✗ " + label); }
 }
 
-console.log("=== #92664: Read tool encoding parameter — real behavior proof ===\n");
+console.log("=== #92664: Read tool GBK encoding — real behavior proof ===\n");
 
-// Step 1: Create a latin1-encoded test file with accented characters.
-// Bytes 0xE9 (é), 0xF1 (ñ), 0xFC (ü) are INVALID as standalone UTF-8 bytes.
-var latin1Text = "Café naïve ümlaut";
-var latin1Bytes = Buffer.from(latin1Text, "latin1");
-var tmpFile = join(tmpdir(), "openclaw-encoding-test.txt");
-writeFileSync(tmpFile, latin1Bytes);
+// ── Test 1: GBK-encoded Chinese file (the REPORTED bug) ──
+// GBK bytes for: "GBK 编码测试\n公司：深圳欧盛自动化"
+var gbkChineseBytes = Buffer.from([
+  0x47, 0x42, 0x4b, 0x20,  // "GBK "
+  0xb1, 0xe0, 0xc2, 0xeb, 0xb2, 0xe2, 0xca, 0xd4,  // "编码测试"
+  0x0a,  // "\n"
+  0xb9, 0xab, 0xcb, 0xbe, 0xa3, 0xba,  // "公司："
+  0xc9, 0xee, 0xdb, 0xda, 0xc5, 0xb7, 0xca, 0xa2, 0xd7, 0xd4, 0xb6, 0xaf, 0xbb, 0xaf  // "深圳欧盛自动化"
+]);
+var gbkFile = join(tmpdir(), "openclaw-gbk-test.txt");
+writeFileSync(gbkFile, gbkChineseBytes);
 
-console.log("1. Created latin1-encoded test file:");
-console.log("   Content:    \"" + latin1Text + "\"");
-console.log("   Raw bytes:  " + Array.from(latin1Bytes).map(function(b) { return "0x" + b.toString(16).padStart(2, "0"); }).join(" "));
-console.log("   Temp path:  " + tmpFile);
+console.log("1. GBK-encoded Chinese file (the REPORTED bug):");
+console.log("   Raw bytes: " + Array.from(gbkChineseBytes.slice(0,12)).map(function(b) { return "0x" + b.toString(16).padStart(2,"0"); }).join(" ") + " ...");
+console.log("   Temp path: " + gbkFile);
 
-// Step 2: Demonstrate that Node.js Buffer encoding works correctly
-console.log("\n2. Node.js Buffer.decode verification:");
-var decodedUtf8 = latin1Bytes.toString("utf-8");
-var decodedLatin1 = latin1Bytes.toString("latin1");
-console.log("   toString('utf-8'):   \"" + decodedUtf8 + "\"  ← GARBLED (invalid UTF-8 bytes → �)");
-console.log("   toString('latin1'):  \"" + decodedLatin1 + "\"  ← CORRECT");
-assert(decodedLatin1 === latin1Text, "Buffer.toString('latin1') correctly decodes latin1 bytes");
-assert(decodedUtf8 !== latin1Text, "Buffer.toString('utf-8') garbles latin1 bytes");
-
-// Step 3: Use the production read tool — WITHOUT encoding parameter
-console.log("\n3. Production read tool WITHOUT encoding (default utf-8):");
 var tool = createReadTool(tmpdir());
-var resultNoEnc = await tool.execute("test", { path: tmpFile });
-var textBlock = resultNoEnc.content.find(function(c) { return c && c.type === "text"; });
-var textNoEnc = textBlock ? textBlock.text : "";
-console.log("   Output:  \"" + textNoEnc + "\"");
-console.log("   Verdict: ❌ MOJIBAKE — non-UTF-8 file displayed as garbled text");
-assert(textNoEnc !== latin1Text, "Default UTF-8 decode produces garbled text for latin1 file");
 
-// Step 4: Use the production read tool — WITH encoding=latin1 (THE FIX)
-console.log("\n4. Production read tool WITH encoding=latin1 (THE FIX):");
-var resultWithEnc = await tool.execute("test", { path: tmpFile, encoding: "latin1" });
-var textBlock2 = resultWithEnc.content.find(function(c) { return c && c.type === "text"; });
-var textWithEnc = textBlock2 ? textBlock2.text : "";
-console.log("   Output:  \"" + textWithEnc + "\"");
-console.log("   Verdict: ✅ CORRECT — encoding parameter restores original text");
-assert(textWithEnc === latin1Text, "encoding=latin1 correctly decodes non-UTF-8 file");
+// Read WITHOUT encoding → mojibake (the bug)
+console.log("\n2. read WITHOUT encoding → MOJIBAKE (the bug):");
+var r1 = await tool.execute("test", { path: gbkFile });
+var t1 = r1.content.find(function(c) { return c && c.type === "text"; });
+var text1 = t1 ? t1.text : "";
+console.log("   Output:  \"" + text1.replace(/\n/g, "\\n") + "\"");
+console.log("   Verdict: ❌ GARBLED — GBK bytes decoded as UTF-8");
+assert(!text1.includes("深圳欧盛自动化"), "UTF-8 decode cannot read Chinese GBK text");
 
-// Step 5: Schema validation
-console.log("\n5. Tool schema includes encoding parameter:");
-var props = tool.parameters && typeof tool.parameters === "object" ? tool.parameters.properties : undefined;
-assert(props && props.encoding !== undefined, "encoding parameter is in the read tool schema");
+// Read WITH encoding=gbk → correct Chinese (THE FIX)
+console.log("\n3. read WITH encoding=gbk → CORRECT (THE FIX):");
+var r2 = await tool.execute("test", { path: gbkFile, encoding: "gbk" });
+var t2 = r2.content.find(function(c) { return c && c.type === "text"; });
+var text2 = t2 ? t2.text : "";
+console.log("   Output:  \"" + text2.replace(/\n/g, "\\n") + "\"");
+console.log("   Verdict: ✅ CORRECT — encoding=gbk restores Chinese text");
+assert(text2.includes("深圳欧盛自动化"), "encoding=gbk correctly decodes Chinese GBK file");
+assert(text2.includes("编码测试"), "encoding=gbk reads GBK header line correctly");
+
+// ── Test 2: latin1 accented chars ──
+console.log("\n4. latin1 accented chars (additional encoding proof):");
+var latin1Bytes = Buffer.from("Café naïve ümlaut", "latin1");
+var latin1File = join(tmpdir(), "openclaw-latin1-test.txt");
+writeFileSync(latin1File, latin1Bytes);
+
+var r3 = await tool.execute("test", { path: latin1File });
+var t3 = r3.content.find(function(c) { return c && c.type === "text"; });
+assert((t3 ? t3.text : "") !== "Café naïve ümlaut", "UTF-8 garbles latin1");
+
+var r4 = await tool.execute("test", { path: latin1File, encoding: "latin1" });
+var t4 = r4.content.find(function(c) { return c && c.type === "text"; });
+assert((t4 ? t4.text : "") === "Café naïve ümlaut", "encoding=latin1 restores accented text");
+console.log("   UTF-8 → garbled ✓   latin1 → correct ✓");
 
 // Cleanup
-unlinkSync(tmpFile);
+unlinkSync(gbkFile);
+unlinkSync(latin1File);
 
 console.log("\n=== Results: " + results.passed + " passed, " + results.failed + " failed ===");
 process.exit(results.failed > 0 ? 1 : 0);
