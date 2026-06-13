@@ -34,14 +34,14 @@ import { wrapToolDefinition } from "./tool-definition-wrapper.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./truncate.js";
 
 const readSchema = Type.Object({
-  path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
-  offset: Type.Optional(
-    Type.Number({ description: "Line number to start reading from (1-indexed)" }),
-  ),
-  limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
   encoding: Type.Optional(
     Type.String({ description: "File encoding, e.g. utf-8, gbk, shift_jis, latin1. Defaults to utf-8." }),
   ),
+  limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+  offset: Type.Optional(
+    Type.Number({ description: "Line number to start reading from (1-indexed)" }),
+  ),
+  path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
 });
 export type { ReadToolDetails, ReadToolInput } from "./tool-contracts.js";
 
@@ -344,7 +344,7 @@ export function createReadToolDefinition(
               const buffer = await ops.readFile(absolutePath);
               // Use TextDecoder which supports WHATWG encoding labels
               // (gbk, shift_jis, euc-jp, etc.) in addition to UTF-8.
-              const textContent = new TextDecoder(encoding ?? "utf-8").decode(buffer);
+              const textContent = new TextDecoder(encoding ?? "utf8").decode(buffer);
               const allLines = textContent.split("\n");
               const totalFileLines = allLines.length;
               // Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
