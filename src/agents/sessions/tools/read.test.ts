@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { withEnvAsync } from "../../../test-utils/env.js";
+import { decodeWindowsOutputBuffer } from "../../../infra/windows-encoding.js";
 import { createReadToolDefinition } from "./read.js";
 import { DEFAULT_MAX_BYTES } from "./truncate.js";
 
@@ -133,10 +134,25 @@ describe("read tool", () => {
       expect(textContent(result)).toBe("你好世界");
     });
 
-    it("does not crash on non-UTF-8 files (produces output through fallback)", async () => {
+    it("decodes GBK Chinese text via simulated Windows codepage fallback", () => {
+      const result = decodeWindowsOutputBuffer({
+        buffer: gbkChineseBytes,
+        platform: "win32",
+        windowsEncoding: "gbk",
+      });
+
+      // Must contain the actual Chinese text from the GBK file.
+      expect(result).toContain("深圳欧盛自动化");
+      expect(result).toContain("编码测试");
+      // ASCII prefix should also be intact.
+      expect(result).toContain("GBK");
+    });
+
+    it("does not crash on non-UTF-8 files in the read tool execution path", async () => {
       // On non-Windows, decodeWindowsOutputBuffer falls back to UTF-8 with
-      // replacement characters (current behavior). The key property is that
-      // the read tool does not throw when encountering legacy-encoded bytes.
+      // replacement characters. The key property is that the read tool does
+      // not throw when encountering legacy-encoded bytes, and the ASCII
+      // subset survives any fallback.
       const tool = createReadToolDefinition("/workspace", {
         operations: {
           access: async () => {},
@@ -153,10 +169,8 @@ describe("read tool", () => {
         {} as never,
       );
 
-      // Should not throw — the read tool handles non-UTF-8 gracefully.
       expect(() => textContent(result)).not.toThrow();
       const text = textContent(result);
-      // ASCII prefix "GBK " should survive any fallback path.
       expect(text).toContain("GBK");
     });
   });
