@@ -4,11 +4,33 @@ import { Buffer } from "node:buffer";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { withEnvAsync } from "../../../test-utils/env.js";
-import { decodeWindowsOutputBuffer } from "../../../infra/windows-encoding.js";
 import { createReadToolDefinition } from "./read.js";
 import { DEFAULT_MAX_BYTES } from "./truncate.js";
+
+// Mock decodeWindowsOutputBuffer to simulate Windows GBK fallback.
+// This proves the read tool EXECUTION PATH reaches the decoder —
+// the mock returns decoded Chinese only when the read tool calls
+// decodeWindowsOutputBuffer (which current main does NOT).
+vi.mock("../../../infra/windows-encoding.js", () => ({
+  decodeWindowsOutputBuffer: vi.fn(({ buffer }: { buffer: Buffer }) => {
+    // Simulated Windows GBK (code page 936) fallback.
+    // GBK bytes for "GBK 编码测试\n公司：深圳欧盛自动化"
+    const expectedGbk = Buffer.from([
+      0x47, 0x42, 0x4b, 0x20, 0xb1, 0xe0, 0xc2, 0xeb, 0xb2, 0xe2,
+      0xca, 0xd4, 0x0a, 0xb9, 0xab, 0xcb, 0xbe, 0xa3, 0xba, 0xc9,
+      0xee, 0xdb, 0xda, 0xc5, 0xb7, 0xca, 0xa2, 0xd7, 0xd4, 0xb6,
+      0xaf, 0xbb, 0xaf,
+    ]);
+    if (buffer.length >= 4 && buffer[0] === 0x47 && buffer[1] === 0x42
+        && buffer[2] === 0x4b && buffer[3] === 0x20) {
+      return "GBK 编码测试\n公司：深圳欧盛自动化";
+    }
+    // For non-GBK input, return valid UTF-8 as-is
+    return buffer.toString("utf-8");
+  }),
+}));
 
 const ONE_PIXEL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -111,10 +133,9 @@ describe("read tool", () => {
       0xaf, 0xbb, 0xaf,
     ]);
 
-    // Valid UTF-8 Chinese: "你好世界"
     const utf8ChineseBytes = Buffer.from("你好世界", "utf-8");
 
-    it("decodes UTF-8 text files correctly (no regression)", async () => {
+    it("decodes UTF-8 text files correctly through the read tool", async () => {
       const tool = createReadToolDefinition("/workspace", {
         operations: {
           access: async () => {},
@@ -134,25 +155,13 @@ describe("read tool", () => {
       expect(textContent(result)).toBe("你好世界");
     });
 
-    it("decodes GBK Chinese text via simulated Windows codepage fallback", () => {
-      const result = decodeWindowsOutputBuffer({
-        buffer: gbkChineseBytes,
-        platform: "win32",
-        windowsEncoding: "gbk",
-      });
-
-      // Must contain the actual Chinese text from the GBK file.
-      expect(result).toContain("深圳欧盛自动化");
-      expect(result).toContain("编码测试");
-      // ASCII prefix should also be intact.
-      expect(result).toContain("GBK");
-    });
-
-    it("does not crash on non-UTF-8 files in the read tool execution path", async () => {
-      // On non-Windows, decodeWindowsOutputBuffer falls back to UTF-8 with
-      // replacement characters. The key property is that the read tool does
-      // not throw when encountering legacy-encoded bytes, and the ASCII
-      // subset survives any fallback.
+    it("read tool returns decoded GBK Chinese via Windows codepage fallback", async () => {
+      // This test proves the read tool EXECUTION PATH reaches
+      // decodeWindowsOutputBuffer. The mock (vi.mock above)
+      // returns decoded Chinese when the read tool passes GBK
+      // bytes — current main does NOT call the mock, so this
+      // test FAILS on main (where buffer.toString('utf8')
+      // produces garbled replacement characters).
       const tool = createReadToolDefinition("/workspace", {
         operations: {
           access: async () => {},
@@ -169,9 +178,36 @@ describe("read tool", () => {
         {} as never,
       );
 
-      expect(() => textContent(result)).not.toThrow();
       const text = textContent(result);
+      // The mock returns decoded Chinese — the read tool must
+      // call decodeWindowsOutputBuffer and use its output.
+      expect(text).toContain("深圳欧盛自动化");
+      expect(text).toContain("编码测试");
       expect(text).toContain("GBK");
+    });
+
+    it("does not crash on non-UTF-8 files (graceful fallback)", async () => {
+      // Verify the read tool execution path doesn't throw for
+      // legacy-encoded bytes, even when the mock returns UTF-8
+      // replacement (non-GBK input to the mock).
+      const nonGbkBytes = Buffer.from([0xff, 0xfe, 0x00, 0x00]);
+      const tool = createReadToolDefinition("/workspace", {
+        operations: {
+          access: async () => {},
+          detectImageMimeType: async () => null,
+          readFile: async () => nonGbkBytes,
+        },
+      });
+
+      const result = await tool.execute(
+        "call-1",
+        { path: "unknown.bin" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+
+      expect(() => textContent(result)).not.toThrow();
     });
   });
 });
