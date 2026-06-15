@@ -423,9 +423,10 @@ describe("bot-native-command-menu", () => {
     expect(hashCommandList(a)).not.toBe(hashCommandList(b));
   });
 
-  it("skips sync when command hash is unchanged (#32017)", async () => {
+  it("skips sync when command hash is unchanged and remote is populated (#32017)", async () => {
     const deleteMyCommands = vi.fn(async () => undefined);
     const setMyCommands = vi.fn(async () => undefined);
+    const getMyCommands = vi.fn(async () => [{ command: "skip_test", description: "Skip test command" }]);
     const runtimeLog = vi.fn();
 
     const accountId = `test-skip-${Date.now()}`;
@@ -434,6 +435,7 @@ describe("bot-native-command-menu", () => {
     syncMenuCommandsWithMocks({
       deleteMyCommands,
       setMyCommands,
+      getMyCommands,
       runtimeLog,
       commandsToRegister: commands,
       accountId,
@@ -444,15 +446,21 @@ describe("bot-native-command-menu", () => {
       expect(setMyCommands).toHaveBeenCalledTimes(2);
     });
 
+    // Second sync: hash matches AND getMyCommands returns non-empty → skip
     syncMenuCommandsWithMocks({
       deleteMyCommands,
       setMyCommands,
+      getMyCommands,
       runtimeLog,
       commandsToRegister: commands,
       accountId,
       botIdentity: "bot-a",
     });
 
+    // No additional calls — sync was skipped
+    await vi.waitFor(() => {
+      expect(getMyCommands).toHaveBeenCalled();
+    });
     expect(setMyCommands).toHaveBeenCalledTimes(2);
   });
 
@@ -658,9 +666,47 @@ describe("bot-native-command-menu", () => {
       commandsToRegister: commands, accountId, botIdentity: "bot-b",
     });
     // No additional setMyCommands calls — sync was skipped
-    await new Promise<void>((resolve) => {
-      setTimeout(() => resolve(), 100);
+    await vi.waitFor(() => {
+      expect(getMyCommands).toHaveBeenCalled();
     });
     expect(setMyCommands).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-syncs when localized command variant is empty despite base scopes being populated (#92945)", async () => {
+    const deleteMyCommands = vi.fn(async () => undefined);
+    const setMyCommands = vi.fn(async () => undefined);
+    // getMyCommands returns populated for base scopes but empty for localized variant
+    const getMyCommands = vi.fn(async (opts?: { language_code?: string }) => {
+      if (opts?.language_code === "ko") {
+        return []; // Localized variant is empty — stale!
+      }
+      return [{ command: "test", description: "Test" }];
+    });
+    const runtimeLog = vi.fn();
+    const accountId = `test-localized-empty-${Date.now()}`;
+    const commands = [{
+      command: "test",
+      description: "Test",
+      descriptionLocalizations: { ko: "테스트" },
+    }];
+
+    // First sync — populates hash
+    syncMenuCommandsWithMocks({
+      deleteMyCommands, setMyCommands, getMyCommands, runtimeLog,
+      commandsToRegister: commands, accountId, botIdentity: "bot-c",
+    });
+    await vi.waitFor(() => expect(setMyCommands).toHaveBeenCalledTimes(4));
+
+    // Second sync — hash matches, base scopes populated, but ko variant empty → re-sync
+    syncMenuCommandsWithMocks({
+      deleteMyCommands, setMyCommands, getMyCommands, runtimeLog,
+      commandsToRegister: commands, accountId, botIdentity: "bot-c",
+    });
+    await vi.waitFor(() => expect(setMyCommands).toHaveBeenCalledTimes(8));
+    // Verify the localized language_code query was made
+    const langCodeCalls = getMyCommands.mock.calls.filter(
+      (c: unknown[]) => (c[0] as Record<string, unknown>)?.language_code === "ko",
+    );
+    expect(langCodeCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
