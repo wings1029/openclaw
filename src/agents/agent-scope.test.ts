@@ -663,7 +663,12 @@ describe("resolveAgentConfig", () => {
         primaryModel: "gpt-5.4",
         probeState: new Map(),
       }),
-    ).toBeUndefined();
+    ).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+      fallbackProvider: "google",
+      fallbackModel: "gemini-3-pro",
+    });
     expect(
       resolveAutoFallbackPrimaryProbe({
         entry: {

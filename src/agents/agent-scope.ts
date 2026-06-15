@@ -151,24 +151,28 @@ export function resolveAutoFallbackPrimaryProbe(params: {
     return undefined;
   }
 
-  const originProvider = normalizeOptionalString(entry.modelOverrideFallbackOriginProvider);
-  const originModel = normalizeOptionalString(entry.modelOverrideFallbackOriginModel);
   const overrideProvider = normalizeOptionalString(entry.providerOverride);
   const overrideModel = normalizeOptionalString(entry.modelOverride);
   const primaryProvider = normalizeOptionalString(params.primaryProvider);
   const primaryModel = normalizeOptionalString(params.primaryModel);
-  if (!originProvider || !originModel || !overrideProvider || !overrideModel) {
+  if (!overrideProvider || !overrideModel) {
     return undefined;
   }
   if (!primaryProvider || !primaryModel) {
     return undefined;
   }
-  if (originProvider !== primaryProvider || originModel !== primaryModel) {
+  if (overrideProvider === primaryProvider && overrideModel === primaryModel) {
     return undefined;
   }
-  if (overrideProvider === originProvider && overrideModel === originModel) {
-    return undefined;
-  }
+
+  // Use the current configured primary as the probe origin rather than
+  // requiring a persisted origin that matches.  The persisted origin
+  // can be missing (first fallback), polluted with the failing model
+  // instead of the primary (#92776), or stale (primary changed).
+  // Using the current primary ensures the snap-back probe fires and
+  // clears the auto-fallback override once the primary is available.
+  const probeOriginProvider = primaryProvider;
+  const probeOriginModel = primaryModel;
 
   const now = params.now ?? Date.now();
   const minIntervalMs = params.minIntervalMs ?? AUTO_FALLBACK_PRIMARY_PROBE_INTERVAL_MS;
@@ -181,8 +185,8 @@ export function resolveAutoFallbackPrimaryProbe(params: {
   });
   const key = autoFallbackPrimaryProbeStateKey({
     sessionKey: params.sessionKey,
-    primaryProvider: originProvider,
-    primaryModel: originModel,
+    primaryProvider: probeOriginProvider,
+    primaryModel: probeOriginModel,
   });
   const lastProbeAt = state.get(key);
   if (
@@ -197,8 +201,8 @@ export function resolveAutoFallbackPrimaryProbe(params: {
     entry.authProfileOverrideSource ??
     (entry.authProfileOverrideCompactionCount !== undefined ? "auto" : undefined);
   return {
-    provider: originProvider,
-    model: originModel,
+    provider: probeOriginProvider,
+    model: probeOriginModel,
     fallbackProvider: overrideProvider,
     fallbackModel: overrideModel,
     ...(fallbackAuthProfileId
@@ -263,11 +267,14 @@ export function entryMatchesAutoFallbackPrimaryProbe(
   if (entry.modelOverrideSource !== "auto" && !recoveredAutoFallbackOverride) {
     return false;
   }
+  // Match on the fallback override (the model the session was stuck on).
+  // We intentionally do NOT require the persisted origin to match the
+  // probe origin — the origin can be polluted (#92776) and the probe
+  // now always uses the current configured primary.  Matching only on
+  // the override ensures polluted session entries can still be updated.
   return (
     normalizeOptionalString(entry.providerOverride) === probe.fallbackProvider &&
-    normalizeOptionalString(entry.modelOverride) === probe.fallbackModel &&
-    normalizeOptionalString(entry.modelOverrideFallbackOriginProvider) === probe.provider &&
-    normalizeOptionalString(entry.modelOverrideFallbackOriginModel) === probe.model
+    normalizeOptionalString(entry.modelOverride) === probe.fallbackModel
   );
 }
 
