@@ -528,7 +528,7 @@ export function syncTelegramMenuCommands(params: {
         for (const scope of TELEGRAM_COMMAND_MENU_SCOPES) {
           // Check base scope (no language_code).
           const baseCommands = await bot.api.getMyCommands(
-            scope.options ?? {},
+            scope.options,
           );
           if (!baseCommands || baseCommands.length === 0) {
             allScopesPopulated = false;
@@ -537,7 +537,7 @@ export function syncTelegramMenuCommands(params: {
           // Check each localized variant for this scope.
           for (const langCode of languageCodes) {
             const langCommands = await bot.api.getMyCommands({
-              ...(scope.options ?? {}),
+              ...scope.options,
               language_code: langCode as LanguageCode,
             });
             if (!langCommands || langCommands.length === 0) {
