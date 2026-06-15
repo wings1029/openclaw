@@ -16,18 +16,13 @@ import { DEFAULT_MAX_BYTES } from "./truncate.js";
 vi.mock("../../../infra/windows-encoding.js", () => ({
   decodeWindowsOutputBuffer: vi.fn(({ buffer }: { buffer: Buffer }) => {
     // Simulated Windows GBK (code page 936) fallback.
-    // GBK bytes for "GBK 编码测试\n公司：深圳欧盛自动化"
-    const expectedGbk = Buffer.from([
-      0x47, 0x42, 0x4b, 0x20, 0xb1, 0xe0, 0xc2, 0xeb, 0xb2, 0xe2,
-      0xca, 0xd4, 0x0a, 0xb9, 0xab, 0xcb, 0xbe, 0xa3, 0xba, 0xc9,
-      0xee, 0xdb, 0xda, 0xc5, 0xb7, 0xca, 0xa2, 0xd7, 0xd4, 0xb6,
-      0xaf, 0xbb, 0xaf,
-    ]);
+    // When the read tool passes GBK bytes through the decoder,
+    // return decoded Chinese. On current main the read tool
+    // never calls this function, so the test fails.
     if (buffer.length >= 4 && buffer[0] === 0x47 && buffer[1] === 0x42
         && buffer[2] === 0x4b && buffer[3] === 0x20) {
       return "GBK 编码测试\n公司：深圳欧盛自动化";
     }
-    // For non-GBK input, return valid UTF-8 as-is
     return buffer.toString("utf-8");
   }),
 }));
