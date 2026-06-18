@@ -526,6 +526,36 @@ describe("bot-native-command-menu", () => {
     await vi.waitFor(() => expect(deleteMyCommands).toHaveBeenCalledTimes(4));
   });
 
+  it("cached-hash skips sync after empty menu deletes successfully (#32017)", async () => {
+    const deleteMyCommands = vi.fn(async () => undefined);
+    const setMyCommands = vi.fn(async () => undefined);
+    const getMyCommands = vi.fn(async () => []);
+    const accountId = `test-empty-delete-cache-${Date.now()}`;
+
+    syncMenuCommandsWithMocks({
+      deleteMyCommands,
+      setMyCommands,
+      getMyCommands,
+      commandsToRegister: [],
+      accountId,
+      botIdentity: "bot-a",
+    });
+    await vi.waitFor(() => expect(deleteMyCommands).toHaveBeenCalledTimes(2));
+
+    syncMenuCommandsWithMocks({
+      deleteMyCommands,
+      setMyCommands,
+      getMyCommands,
+      commandsToRegister: [],
+      accountId,
+      botIdentity: "bot-a",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(deleteMyCommands).toHaveBeenCalledTimes(2);
+    expect(setMyCommands).not.toHaveBeenCalled();
+    expect(getMyCommands).not.toHaveBeenCalled();
+  });
+
   it("retries with fewer commands on BOT_COMMANDS_TOO_MUCH", async () => {
     const deleteMyCommands = vi.fn(async () => undefined);
     const setMyCommands = vi

@@ -541,6 +541,10 @@ export function syncTelegramMenuCommands(params: {
     const currentHash = hashCommandList(commandsToRegister);
     const cachedHash = readCachedCommandHash(accountId, botIdentity);
     if (cachedHash === currentHash) {
+      if (commandsToRegister.length === 0) {
+        logVerbose("telegram: empty command menu unchanged; skipping sync");
+        return;
+      }
       // The local hash matches, but the remote Telegram state may have been
       // cleared (e.g. after an interrupted sync or gateway restart).  Verify
       // every scope and language variant we write before skipping.  See #92944.
