@@ -3635,3 +3635,117 @@ describe("loadChatHistory retry handling", () => {
     expect(state.chatThinkingLevel).toBeNull();
   });
 });
+
+describe("loadChatHistory inFlightRun adoption (#90755)", () => {
+  it("restores a buffered in-flight assistant stream on session switch-back", async () => {
+    const messages = [{ role: "user", content: [{ type: "text", text: "Hello" }] }];
+    const request = vi.fn().mockResolvedValue({
+      messages,
+      inFlightRun: { runId: "run-live", text: "Partial assistant repl" },
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      connected: true,
+      chatRunId: null,
+      chatStream: null,
+      chatStreamStartedAt: null,
+    });
+
+    await loadChatHistory(state);
+
+    expect(state.chatRunId).toBe("run-live");
+    expect(state.chatStream).toBe("Partial assistant repl");
+    expect(state.chatStreamStartedAt).toEqual(expect.any(Number));
+    expect(state.chatMessages).toEqual(messages);
+  });
+
+  it("adopts an empty-text in-flight run so the thread shows streaming, not idle", async () => {
+    const messages = [{ role: "user", content: [{ type: "text", text: "Run it" }] }];
+    const request = vi.fn().mockResolvedValue({
+      messages,
+      inFlightRun: { runId: "run-codex", text: "" },
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      connected: true,
+      chatRunId: null,
+      chatStream: null,
+      chatStreamStartedAt: null,
+    });
+
+    await loadChatHistory(state);
+
+    expect(state.chatRunId).toBe("run-codex");
+    expect(state.chatStream).toBe("");
+    expect(state.chatStreamStartedAt).toEqual(expect.any(Number));
+  });
+
+  it("reconciles in-flight text that overlaps with the last committed assistant message", async () => {
+    // The in-flight text is the cumulative buffer. If the last committed
+    // assistant message already contains the prefix, only the new suffix
+    // should be adopted to avoid duplicating text.
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "Write a haiku" }] },
+      { role: "assistant", content: [{ type: "text", text: "Silent pond," }] },
+    ];
+    const request = vi.fn().mockResolvedValue({
+      messages,
+      inFlightRun: { runId: "run-poem", text: "Silent pond,\nA frog jumps in—\nSplash!" },
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      connected: true,
+      chatRunId: null,
+      chatStream: null,
+      chatStreamStartedAt: null,
+    });
+
+    await loadChatHistory(state);
+
+    expect(state.chatRunId).toBe("run-poem");
+    // Only the suffix beyond the committed text should be adopted
+    expect(state.chatStream).toBe("\nA frog jumps in—\nSplash!");
+    expect(state.chatStreamStartedAt).toEqual(expect.any(Number));
+  });
+
+  it("ignores inFlightRun without a run id", async () => {
+    const messages = [{ role: "user", content: [{ type: "text", text: "hi" }] }];
+    const request = vi.fn().mockResolvedValue({
+      messages,
+      inFlightRun: { text: "orphan partial" },
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      connected: true,
+      chatRunId: null,
+      chatStream: null,
+      chatStreamStartedAt: null,
+    });
+
+    await loadChatHistory(state);
+
+    expect(state.chatRunId).toBeNull();
+    expect(state.chatStream).toBeNull();
+  });
+
+  it("does not clobber a fresher local run that survived stream reconciliation", async () => {
+    // A live local run started/continued during reload must win over a stale
+    // history snapshot's inFlightRun.
+    const request = vi.fn().mockResolvedValue({
+      messages: [{ role: "user", content: [{ type: "text", text: "newer turn" }] }],
+      inFlightRun: { runId: "run-stale", text: "stale partial" },
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      connected: true,
+      chatRunId: "run-fresh",
+      chatStream: "fresh live text",
+      chatStreamStartedAt: 999,
+    });
+
+    await loadChatHistory(state);
+
+    expect(state.chatRunId).toBe("run-fresh");
+    expect(state.chatStream).toBe("fresh live text");
+  });
+});
