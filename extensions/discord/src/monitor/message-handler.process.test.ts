@@ -2639,17 +2639,21 @@ describe("processDiscordMessage draft streaming", () => {
     expect(deliverDiscordReply).not.toHaveBeenCalled();
   });
 
-  it("suppresses reasoning payload delivery to Discord", async () => {
+  // FIX #94936: Reasoning payloads are now delivered to Discord when reasoning
+  // mode is "on" (the agent enforces the mode upstream).  Previously they were
+  // unconditionally suppressed.
+  it("delivers reasoning payload to Discord", async () => {
     mockDispatchSingleBlockReply({ text: "thinking...", isReasoning: true });
     await processStreamOffDiscordMessage();
 
-    expect(deliverDiscordReply).not.toHaveBeenCalled();
+    expect(deliverDiscordReply).toHaveBeenCalled();
   });
 
-  it("suppresses reasoning-tagged final payload delivery to Discord", async () => {
+  // FIX #94936: Reasoning-tagged final payloads are now delivered to Discord.
+  it("delivers reasoning-tagged final payload to Discord", async () => {
     dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
       await params?.dispatcher.sendFinalReply({
-        text: "Reasoning:\nthis should stay internal",
+        text: "Reasoning:\nthis should reach Discord",
         isReasoning: true,
       });
       return { queuedFinal: true, counts: { final: 1, tool: 0, block: 0 } };
@@ -2661,8 +2665,7 @@ describe("processDiscordMessage draft streaming", () => {
 
     await runProcessDiscordMessage(ctx);
 
-    expect(deliverDiscordReply).not.toHaveBeenCalled();
-    expect(editMessageDiscord).not.toHaveBeenCalled();
+    expect(deliverDiscordReply).toHaveBeenCalled();
   });
 
   it("delivers non-reasoning block payloads to Discord", async () => {

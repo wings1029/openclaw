@@ -609,18 +609,10 @@ async function processDiscordMessageInner(
       );
       return null;
     }
-    if (payload.isReasoning) {
-      // Reasoning/thinking payloads should not be delivered to Discord.
-      logVerbose(
-        formatDiscordReplySkip({
-          kind: info.kind,
-          reason: "reasoning payload",
-          target: deliverTarget,
-          sessionKey: ctxPayload.SessionKey,
-        }),
-      );
-      return null;
-    }
+    // FIX #94936: Reasoning/thinking payloads are no longer suppressed here.
+    // The reasoning mode ("off"/"on"/"stream") is enforced upstream by the agent;
+    // when reasoning is "on", thinking content must reach the channel as persistent
+    // messages.  When reasoning is "off", these payloads are not produced.
     if (draftPreview.draftStream && draftPreview.isProgressMode && info.kind === "block") {
       const reply = resolveSendableOutboundReplyParts(payload);
       if (!reply.hasMedia && !payload.isError) {
@@ -652,18 +644,10 @@ async function processDiscordMessageInner(
       return { visibleReplySent: false };
     }
     const isFinal = info.kind === "final";
-    if (payload.isReasoning) {
-      // Reasoning/thinking payloads should not be delivered to Discord.
-      logVerbose(
-        formatDiscordReplySkip({
-          kind: info.kind,
-          reason: "reasoning payload",
-          target: deliverTarget,
-          sessionKey: ctxPayload.SessionKey,
-        }),
-      );
-      return { visibleReplySent: false };
-    }
+    // FIX #94936: Reasoning/thinking payloads are no longer suppressed here.
+    // The reasoning mode ("off"/"on"/"stream") is enforced upstream by the agent;
+    // when reasoning is "on", thinking content must reach the channel as persistent
+    // messages.  When reasoning is "off", these payloads are not produced.
     if (
       isFinal &&
       !options?.allowFallbackOnlyToolWarning &&
