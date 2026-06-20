@@ -26,8 +26,8 @@ import {
   REQUIRED_PARAM_GROUPS,
   assertRequiredParams,
   getToolParamsRecord,
-  stripMalformedXmlArgValueSuffix,
-  stripMalformedXmlArgValueSuffixFromKeys,
+  normalizePathParam,
+  normalizePathParamsFromKeys,
   wrapToolParamValidation,
 } from "./agent-tools.params.js";
 import type { AnyAgentTool } from "./agent-tools.types.js";
@@ -652,7 +652,7 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
     execute: async (toolCallId, args, signal, onUpdate) => {
       const record = getToolParamsRecord(args);
       const normalizedRecord = record
-        ? stripMalformedXmlArgValueSuffixFromKeys(record, ["path"])
+        ? normalizePathParamsFromKeys(record, ["path"])
         : undefined;
       assertRequiredParams(normalizedRecord, REQUIRED_PARAM_GROUPS.write, tool.name);
       const filePath =
@@ -770,7 +770,7 @@ export function wrapToolWorkspaceRootGuardWithOptions(
         if (typeof rawFilePath !== "string" || !rawFilePath.trim()) {
           continue;
         }
-        const filePath = stripMalformedXmlArgValueSuffix(rawFilePath);
+        const filePath = normalizePathParam(rawFilePath);
         if (!filePath.trim()) {
           throw malformedXmlArgValuePathError(key);
         }
@@ -886,7 +886,7 @@ export function createOpenClawReadTool(
     execute: async (toolCallId, params, signal) => {
       const record = getToolParamsRecord(params);
       const normalizedRecord = record
-        ? stripMalformedXmlArgValueSuffixFromKeys(record, ["path"])
+        ? normalizePathParamsFromKeys(record, ["path"])
         : undefined;
       assertRequiredParams(normalizedRecord, REQUIRED_PARAM_GROUPS.read, base.name);
       const result = await executeReadWithAdaptivePaging({

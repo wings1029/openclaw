@@ -6,7 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   assertRequiredParams,
   REQUIRED_PARAM_GROUPS,
+  correctHallucinatedFileExtension,
   getToolParamsRecord,
+  normalizePathParam,
   stripMalformedXmlArgValueSuffix,
   wrapToolParamValidation,
 } from "./agent-tools.params.js";
@@ -252,5 +254,163 @@ describe("assertRequiredParams", () => {
         "write",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("correctHallucinatedFileExtension", () => {
+  it("corrects .docodex to .docx", () => {
+    expect(correctHallucinatedFileExtension("report.docodex")).toBe("report.docx");
+  });
+
+  it("corrects .pptcodex to .pptx", () => {
+    expect(correctHallucinatedFileExtension("slides.pptcodex")).toBe("slides.pptx");
+  });
+
+  it("corrects .xlscodex to .xlsx", () => {
+    expect(correctHallucinatedFileExtension("data.xlscodex")).toBe("data.xlsx");
+  });
+
+  it("corrects hallucinated ext in a path with directories", () => {
+    expect(correctHallucinatedFileExtension("/workspace/docs/report.docodex")).toBe(
+      "/workspace/docs/report.docx",
+    );
+  });
+
+  it("preserves normal extensions", () => {
+    expect(correctHallucinatedFileExtension("report.docx")).toBe("report.docx");
+    expect(correctHallucinatedFileExtension("data.xlsx")).toBe("data.xlsx");
+    expect(correctHallucinatedFileExtension("slides.pptx")).toBe("slides.pptx");
+  });
+
+  it("preserves files with no extension", () => {
+    expect(correctHallucinatedFileExtension("README")).toBe("README");
+    expect(correctHallucinatedFileExtension("/path/to/Makefile")).toBe("/path/to/Makefile");
+  });
+
+  it("preserves paths with multiple dots", () => {
+    expect(correctHallucinatedFileExtension("archive.tar.gz")).toBe("archive.tar.gz");
+    expect(correctHallucinatedFileExtension("file.backup.docx")).toBe("file.backup.docx");
+  });
+
+  it("is case-insensitive for hallucinated extension matching", () => {
+    expect(correctHallucinatedFileExtension("REPORT.DOCODEX")).toBe("REPORT.docx");
+    expect(correctHallucinatedFileExtension("Slides.PptCodex")).toBe("Slides.pptx");
+  });
+
+  it("preserves unknown extensions", () => {
+    expect(correctHallucinatedFileExtension("image.png")).toBe("image.png");
+    expect(correctHallucinatedFileExtension("script.ts")).toBe("script.ts");
+  });
+});
+
+describe("normalizePathParam", () => {
+  it("corrects hallucinated extension after stripping XML suffix", () => {
+    expect(normalizePathParam("report.docodex</arg_value>>")).toBe("report.docx");
+  });
+
+  it("strips XML suffix when extension is normal", () => {
+    expect(normalizePathParam("notes.txt</arg_value>>")).toBe("notes.txt");
+  });
+
+  it("returns unchanged for clean paths", () => {
+    expect(normalizePathParam("report.docx")).toBe("report.docx");
+  });
+});
+
+describe("wrapToolParamValidation with hallucinated extensions", () => {
+  it("silently corrects .docodex path in write tool", async () => {
+    const execute = vi.fn(async (_id, args) => args);
+    const tool = wrapToolParamValidation(
+      {
+        name: "write",
+        label: "write",
+        description: "write a file",
+        parameters: {},
+        execute,
+      },
+      REQUIRED_PARAM_GROUPS.write,
+    );
+
+    await tool.execute("id", { path: "report.docodex", content: "hello" });
+
+    expect(execute).toHaveBeenCalledWith(
+      "id",
+      { path: "report.docx", content: "hello" },
+      undefined,
+      undefined,
+    );
+  });
+
+  it("corrects .docodex combined with XML suffix in write tool", async () => {
+    const execute = vi.fn(async (_id, args) => args);
+    const tool = wrapToolParamValidation(
+      {
+        name: "write",
+        label: "write",
+        description: "write a file",
+        parameters: {},
+        execute,
+      },
+      REQUIRED_PARAM_GROUPS.write,
+    );
+
+    await tool.execute("id", { path: "report.docodex</arg_value>>", content: "hello" });
+
+    // XML suffix stripped first, then extension corrected
+    expect(execute).toHaveBeenCalledWith(
+      "id",
+      { path: "report.docx", content: "hello" },
+      undefined,
+      undefined,
+    );
+  });
+
+  it("preserves normal path through wrapToolParamValidation", async () => {
+    const execute = vi.fn(async (_id, args) => args);
+    const tool = wrapToolParamValidation(
+      {
+        name: "write",
+        label: "write",
+        description: "write a file",
+        parameters: {},
+        execute,
+      },
+      REQUIRED_PARAM_GROUPS.write,
+    );
+
+    await tool.execute("id", { path: "notes.txt", content: "hello" });
+
+    expect(execute).toHaveBeenCalledWith(
+      "id",
+      { path: "notes.txt", content: "hello" },
+      undefined,
+      undefined,
+    );
+  });
+
+  it("does not touch content param when correcting path", async () => {
+    const execute = vi.fn(async (_id, args) => args);
+    const tool = wrapToolParamValidation(
+      {
+        name: "write",
+        label: "write",
+        description: "write a file",
+        parameters: {},
+        execute,
+      },
+      REQUIRED_PARAM_GROUPS.write,
+    );
+
+    await tool.execute("id", {
+      path: "data.xlscodex</arg_value>>",
+      content: "raw content with codex mention",
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      "id",
+      { path: "data.xlsx", content: "raw content with codex mention" },
+      undefined,
+      undefined,
+    );
   });
 });

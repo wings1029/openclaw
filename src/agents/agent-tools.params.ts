@@ -16,6 +16,40 @@ const RETRY_GUIDANCE_SUFFIX = " Supply correct parameters before retrying.";
 const XML_ARG_VALUE_SUFFIX_RE = /<\/arg_value>>+$/;
 const XML_ARG_VALUE_PATH_PARAM_KEYS = new Set(["path"]);
 
+/**
+ * Known hallucinated extension patterns that the model can produce by
+ * conjoining a document extension with "codex" (e.g. .docx + codex → .docodex).
+ * The map is deliberately narrow — only exact matches that have been
+ * observed in production are corrected.
+ */
+const HALLUCINATED_EXT_CORRECTIONS: Record<string, string> = {
+  ".docodex": ".docx",
+  ".pptcodex": ".pptx",
+  ".xlscodex": ".xlsx",
+};
+
+/** Correct known hallucinated file extensions in a path string. */
+export function correctHallucinatedFileExtension(filePath: string): string {
+  const lastDot = filePath.lastIndexOf(".");
+  if (lastDot === -1) {
+    return filePath;
+  }
+  const ext = filePath.slice(lastDot).toLowerCase();
+  const corrected = HALLUCINATED_EXT_CORRECTIONS[ext];
+  if (!corrected) {
+    return filePath;
+  }
+  return filePath.slice(0, lastDot) + corrected;
+}
+
+/**
+ * Normalize a single path parameter value: strip malformed XML suffix first,
+ * then correct known hallucinated extensions.
+ */
+export function normalizePathParam(filePath: string): string {
+  return correctHallucinatedFileExtension(stripMalformedXmlArgValueSuffix(filePath));
+}
+
 function parameterValidationError(message: string): Error {
   return new Error(`${message}.${RETRY_GUIDANCE_SUFFIX}`);
 }
@@ -130,6 +164,26 @@ export function stripMalformedXmlArgValueSuffixFromKeys<T extends Record<string,
   return normalized ?? record;
 }
 
+/** Apply full path normalization (XML suffix + hallucinated extension correction) to selected string fields. */
+export function normalizePathParamsFromKeys<T extends Record<string, unknown>>(
+  record: T,
+  keys: readonly string[],
+): T {
+  let normalized: T | undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== "string") {
+      continue;
+    }
+    const cleaned = normalizePathParam(value);
+    if (cleaned !== value) {
+      normalized ??= { ...record };
+      normalized[key as keyof T] = cleaned as T[keyof T];
+    }
+  }
+  return normalized ?? record;
+}
+
 function resolveMalformedXmlArgValuePathKeys(
   groups: readonly RequiredParamGroup[] | undefined,
 ): string[] {
@@ -198,7 +252,7 @@ export function wrapToolParamValidation(
       const pathKeys = resolveMalformedXmlArgValuePathKeys(requiredParamGroups);
       const normalizedParams =
         record && pathKeys.length > 0
-          ? stripMalformedXmlArgValueSuffixFromKeys(record, pathKeys)
+          ? normalizePathParamsFromKeys(record, pathKeys)
           : params;
       if (requiredParamGroups?.length) {
         assertRequiredParams(getToolParamsRecord(normalizedParams), requiredParamGroups, tool.name);
