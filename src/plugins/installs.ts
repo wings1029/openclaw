@@ -66,7 +66,7 @@ export function extractPluginIdFromKey(key: string): string {
   if (colonIndex === -1) {
     return key;
   }
-  return key.substring(0, colonIndex);
+  return key.slice(0, colonIndex);
 }
 
 /** Records or updates a plugin install record in OpenClaw config. */

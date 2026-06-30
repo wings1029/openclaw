@@ -137,11 +137,13 @@ export function removePluginInstallRecordFromRecords(
     }
     // Same pluginId, now check agentId match
     if (agentId === undefined || agentId === "") {
-      // Removing global: only remove records with no agentId
-      if (!record.agentId || record.agentId === "") continue;
-    } else {
-      // Removing for specific agent: only remove records matching that agentId
-      if (record.agentId === agentId) continue;
+      // Removing global: remove only records without an agentId
+      if (!record.agentId || record.agentId === "") {
+        continue;
+      }
+    } else if (record.agentId === agentId) {
+      // Removing for specific agent: remove only records matching that agentId
+      continue;
     }
     rest[key] = record;
   }
