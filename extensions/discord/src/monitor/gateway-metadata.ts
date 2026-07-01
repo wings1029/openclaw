@@ -59,12 +59,14 @@ function resolveFetchInputUrl(input: RequestInfo | URL): string {
 }
 
 async function materializeGuardedResponse(response: Response): Promise<Response> {
-  const body = await readResponseWithLimit(response, DISCORD_GATEWAY_METADATA_MAX_BYTES, {
-    onOverflow: ({ size, maxBytes }) =>
-      new Error(
-        `Discord gateway metadata response body too large: ${size} bytes (limit: ${maxBytes} bytes)`,
-      ),
-  });
+  const body = new Uint8Array(
+    await readResponseWithLimit(response, DISCORD_GATEWAY_METADATA_MAX_BYTES, {
+      onOverflow: ({ size, maxBytes }) =>
+        new Error(
+          `Discord gateway metadata response body too large: ${size} bytes (limit: ${maxBytes} bytes)`,
+        ),
+    }),
+  );
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,
@@ -276,10 +278,6 @@ export function resolveGatewayInfoWithFallback(params: { runtime?: RuntimeEnv; e
     usedFallback: true,
   };
 }
-
-export const testExports = {
-  materializeGuardedResponse,
-};
 
 export async function fetchDiscordGatewayMetadataGuarded(
   input: string,

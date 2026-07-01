@@ -6,10 +6,17 @@ import {
   fetchDiscordGatewayMetadataGuarded,
   resolveDiscordGatewayInfoTimeoutMs,
   resolveGatewayInfoWithFallback,
-  testExports,
 } from "./gateway-metadata.js";
 
 const DISCORD_GATEWAY_METADATA_MAX_BYTES = 4 * 1024 * 1024;
+
+const { mockFetchWithSsrFGuard } = vi.hoisted(() => ({
+  mockFetchWithSsrFGuard: vi.fn(),
+}));
+
+vi.mock("openclaw/plugin-sdk/ssrf-runtime", () => ({
+  fetchWithSsrFGuard: mockFetchWithSsrFGuard,
+}));
 
 async function listenLoopbackServer(server: Server): Promise<number> {
   return await new Promise((resolve, reject) => {
@@ -29,6 +36,13 @@ async function listenLoopbackServer(server: Server): Promise<number> {
 async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolve) => {
     server.close(() => resolve());
+  });
+}
+
+function stubGuardedFetch(response: Response): void {
+  mockFetchWithSsrFGuard.mockResolvedValue({
+    response,
+    release: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   });
 }
 
@@ -80,9 +94,10 @@ describe("Discord gateway metadata", () => {
   });
 });
 
-describe("materializeGuardedResponse bounded reads", () => {
+describe("fetchDiscordGatewayMetadataGuarded bounded reads", () => {
   beforeEach(() => {
     vi.useRealTimers();
+    mockFetchWithSsrFGuard.mockReset();
   });
 
   afterEach(() => {
@@ -111,7 +126,11 @@ describe("materializeGuardedResponse bounded reads", () => {
 
     try {
       const rawResponse = await fetch(`http://127.0.0.1:${port}`);
-      const response = await testExports.materializeGuardedResponse(rawResponse);
+      stubGuardedFetch(rawResponse);
+
+      const response = await fetchDiscordGatewayMetadataGuarded(
+        "https://discord.com/api/v10/gateway/bot",
+      );
       const text = await response.text();
       expect(JSON.parse(text)).toEqual(JSON.parse(payload));
       console.log(
@@ -150,10 +169,11 @@ describe("materializeGuardedResponse bounded reads", () => {
 
     try {
       const rawResponse = await fetch(`http://127.0.0.1:${port}`);
+      stubGuardedFetch(rawResponse);
 
       let error: unknown;
       try {
-        await testExports.materializeGuardedResponse(rawResponse);
+        await fetchDiscordGatewayMetadataGuarded("https://discord.com/api/v10/gateway/bot");
       } catch (err) {
         error = err;
       }
