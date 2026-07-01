@@ -18,8 +18,8 @@ vi.mock("./urbit/fetch.js", () => ({
   }),
 }));
 
-const { __test } = await import("./channel.runtime.js");
-const { createHttpPokeApi } = __test;
+const { testExports } = await import("./channel.runtime.js");
+const { createHttpPokeApi } = testExports;
 
 /** Streaming chunk size. */
 const CHUNK_SIZE = 64 * 1024;

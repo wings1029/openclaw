@@ -269,4 +269,4 @@ export async function startTlonGatewayAccount(
 export { tlonSetupWizard };
 
 /** Focused test hooks for the HTTP poke error path boundary. */
-export const __test = { createHttpPokeApi };
+export const testExports = { createHttpPokeApi };
