@@ -4,6 +4,7 @@ import type { ChannelAccountSnapshot } from "openclaw/plugin-sdk/channel-contrac
 import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk/channel-send-result";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { ChannelPlugin } from "openclaw/plugin-sdk/core";
+import { readResponseWithLimit } from "openclaw/plugin-sdk/response-limit-runtime";
 import { monitorTlonProvider } from "./monitor/index.js";
 import { tlonSetupWizard } from "./setup-surface.js";
 import {
@@ -25,6 +26,11 @@ import {
   sendGroupMessageWithStory,
 } from "./urbit/send.js";
 import { uploadImageFromUrl } from "./urbit/upload.js";
+
+/** Max bytes to read from a non-ok Urbit poke error body before
+ *  cancelling the stream.  16 KiB preserves a useful diagnostic
+ *  snippet while preventing OOM on a malformed ship response. */
+const TLON_ERROR_BODY_LIMIT_BYTES = 16 * 1024;
 
 type ResolvedTlonAccount = ReturnType<typeof resolveTlonAccount>;
 type ConfiguredTlonAccount = ResolvedTlonAccount & {
@@ -76,8 +82,11 @@ async function createHttpPokeApi(params: {
 
       try {
         if (!response.ok && response.status !== 204) {
-          const errorText = await response.text();
-          throw new Error(`Poke failed: ${response.status} - ${errorText}`);
+          const body = await readResponseWithLimit(response, TLON_ERROR_BODY_LIMIT_BYTES).catch(
+            () => undefined,
+          );
+          const errorText = body ? new TextDecoder().decode(body) : "";
+          throw new Error(`Poke failed: ${response.status}${errorText ? ` - ${errorText}` : ""}`);
         }
 
         return pokeId;
@@ -258,3 +267,6 @@ export async function startTlonGatewayAccount(
 }
 
 export { tlonSetupWizard };
+
+/** Focused test hooks for the HTTP poke error path boundary. */
+export const __test = { createHttpPokeApi };
